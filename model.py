@@ -58,11 +58,7 @@ from centrifuge import (
     SubscriptionEventHandler,
 )
 from datasets import load_dataset
-from diffusers import (
-    FluxPipeline,
-    FluxTransformer2DModel,
-    BitsAndBytesConfig
-)
+from diffusers import FluxPipeline, FluxTransformer2DModel, BitsAndBytesConfig
 from huggingface_hub import HfApi, HfFolder, hf_hub_download, login
 from mcp.server.fastmcp import FastMCP
 
@@ -813,7 +809,7 @@ class MyModel(AIxBlockMLBase):
 
         with gr.Blocks(
             theme=gr.themes.Soft(text_size="sm"),
-            title="Stable Diffusion 3.5 Image Generator",
+            title="Flux Image Generator",
             css=css,
         ) as demo_txt_to_img:
             stats = gr.State(STATS_DEFAULT)
@@ -903,7 +899,7 @@ class MyModel(AIxBlockMLBase):
             )
 
         with gr.Blocks(css=css) as demo:
-            gr.Markdown("Stable-diffusion-3.5")
+            gr.Markdown("Flux Image Generator")
             with gr.Tabs():
                 # if task == "text-to-image":
                 with gr.Tab(label=task):
