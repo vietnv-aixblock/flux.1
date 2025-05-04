@@ -58,7 +58,11 @@ from centrifuge import (
     SubscriptionEventHandler,
 )
 from datasets import load_dataset
-from diffusers import AutoPipelineForText2Image
+from diffusers import (
+    FluxPipeline,
+    FluxTransformer2DModel,
+    BitsAndBytesConfig
+)
 from huggingface_hub import HfApi, HfFolder, hf_hub_download, login
 from mcp.server.fastmcp import FastMCP
 
@@ -688,8 +692,8 @@ class MyModel(AIxBlockMLBase):
             task = kwargs.get("task", "")
             if task == "text-to-image":
                 prompt_text = f"""
-                  A planet, yarn art style
-                    """
+                A planet, yarn art style
+                """
 
             return {
                 "message": "prompt_sample completed successfully",
@@ -730,14 +734,14 @@ class MyModel(AIxBlockMLBase):
                     bnb_4bit_quant_type="nf4",
                     bnb_4bit_compute_dtype=torch.bfloat16,
                 )
-                model_nf4 = SD3Transformer2DModel.from_pretrained(
+                model_nf4 = FluxTransformer2DModel.from_pretrained(
                     model_id,
                     subfolder="transformer",
                     quantization_config=nf4_config,
                     torch_dtype=torch.bfloat16,
                     device_map=device,
                 )
-                pipe_demo = StableDiffusion3Pipeline.from_pretrained(
+                pipe_demo = FluxPipeline.from_pretrained(
                     model_id,
                     transformer=model_nf4,
                     torch_dtype=torch.bfloat16,

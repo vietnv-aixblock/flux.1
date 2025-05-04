@@ -1,4 +1,5 @@
 import os
+import subprocess
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -9,6 +10,10 @@ from pydantic import BaseModel
 from starlette.routing import Mount
 
 from model import MyModel, mcp
+
+# ------------------------------------------------------------------------
+# Load model
+subprocess.run("venv/bin/python load_model.py", shell=True)
 
 
 # Models for request validation

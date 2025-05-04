@@ -1,9 +1,10 @@
 import os
 
 import torch
+from diffusers import BitsAndBytesConfig, FluxPipeline, FluxTransformer2DModel
 from huggingface_hub import HfFolder
-from transformers import pipeline
 
+# ---------------------------------------------------------------------------
 # Đặt token của bạn vào đây
 hf_token = os.getenv("HF_TOKEN", "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")
 # Lưu token vào local
@@ -14,28 +15,26 @@ from huggingface_hub import login
 hf_access_token = "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"
 login(token=hf_access_token)
 
-if torch.cuda.is_available():
-    if torch.cuda.is_bf16_supported():
-        dtype = torch.bfloat16
-    else:
-        dtype = torch.float16
 
-    print("CUDA is available.")
+def _load():
+    nf4_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
+    model_nf4 = FluxTransformer2DModel.from_pretrained(
+        model_id,
+        subfolder="transformer",
+        quantization_config=nf4_config,
+        torch_dtype=torch.bfloat16,
+        device_map=device,
+    )
+    pipe_demo = FluxPipeline.from_pretrained(
+        model_id,
+        transformer=model_nf4,
+        torch_dtype=torch.bfloat16,
+        device_map="balanced",
+    )
 
-    _model = pipeline(
-        "text-generation",
-        model="tonyshark/llama-3.2-nemotron-3b-instruct",
-        torch_dtype=dtype,
-        device_map="auto",  # Hoặc có thể thử "cpu" nếu không ổn,
-        max_new_tokens=256,
-        token="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",
-    )
-else:
-    print("No GPU available, using CPU.")
-    _model = pipeline(
-        "text-generation",
-        model="tonyshark/llama-3.2-nemotron-3b-instruct",
-        device_map="cpu",
-        max_new_tokens=256,
-        token="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",
-    )
+
+_load()
