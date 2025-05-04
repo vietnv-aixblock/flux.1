@@ -13,11 +13,12 @@ import math
 import os
 import random
 from typing import Dict, List, Optional, Tuple, Type, Union
-from diffusers import AutoencoderKL
-from transformers import CLIPTextModel
+
 import torch
-from torch import nn
+from diffusers import AutoencoderKL
 from library.utils import setup_logging
+from torch import nn
+from transformers import CLIPTextModel
 
 setup_logging()
 import logging
@@ -31,7 +32,15 @@ class DyLoRAModule(torch.nn.Module):
     """
 
     # NOTE: support dropout in future
-    def __init__(self, lora_name, org_module: torch.nn.Module, multiplier=1.0, lora_dim=4, alpha=1, unit=1):
+    def __init__(
+        self,
+        lora_name,
+        org_module: torch.nn.Module,
+        multiplier=1.0,
+        lora_dim=4,
+        alpha=1,
+        unit=1,
+    ):
         super().__init__()
         self.lora_name = lora_name
         self.lora_dim = lora_dim
@@ -58,11 +67,28 @@ class DyLoRAModule(torch.nn.Module):
             kernel_size = org_module.kernel_size
             self.stride = org_module.stride
             self.padding = org_module.padding
-            self.lora_A = nn.ParameterList([org_module.weight.new_zeros((1, in_dim, *kernel_size)) for _ in range(self.lora_dim)])
-            self.lora_B = nn.ParameterList([org_module.weight.new_zeros((out_dim, 1, 1, 1)) for _ in range(self.lora_dim)])
+            self.lora_A = nn.ParameterList(
+                [
+                    org_module.weight.new_zeros((1, in_dim, *kernel_size))
+                    for _ in range(self.lora_dim)
+                ]
+            )
+            self.lora_B = nn.ParameterList(
+                [
+                    org_module.weight.new_zeros((out_dim, 1, 1, 1))
+                    for _ in range(self.lora_dim)
+                ]
+            )
         else:
-            self.lora_A = nn.ParameterList([org_module.weight.new_zeros((1, in_dim)) for _ in range(self.lora_dim)])
-            self.lora_B = nn.ParameterList([org_module.weight.new_zeros((out_dim, 1)) for _ in range(self.lora_dim)])
+            self.lora_A = nn.ParameterList(
+                [org_module.weight.new_zeros((1, in_dim)) for _ in range(self.lora_dim)]
+            )
+            self.lora_B = nn.ParameterList(
+                [
+                    org_module.weight.new_zeros((out_dim, 1))
+                    for _ in range(self.lora_dim)
+                ]
+            )
 
         # same as microsoft's
         for lora in self.lora_A:
@@ -83,7 +109,9 @@ class DyLoRAModule(torch.nn.Module):
 
         # specify the dynamic rank
         trainable_rank = random.randint(0, self.lora_dim - 1)
-        trainable_rank = trainable_rank - trainable_rank % self.unit  # make sure the rank is a multiple of unit
+        trainable_rank = (
+            trainable_rank - trainable_rank % self.unit
+        )  # make sure the rank is a multiple of unit
 
         # 一部のパラメータを固定して、残りのパラメータを学習する
         for i in range(0, trainable_rank):
@@ -101,21 +129,29 @@ class DyLoRAModule(torch.nn.Module):
 
         # calculate with lora_A and lora_B
         if self.is_conv2d_3x3:
-            ab = torch.nn.functional.conv2d(x, lora_A, stride=self.stride, padding=self.padding)
+            ab = torch.nn.functional.conv2d(
+                x, lora_A, stride=self.stride, padding=self.padding
+            )
             ab = torch.nn.functional.conv2d(ab, lora_B)
         else:
             ab = x
             if self.is_conv2d:
-                ab = ab.reshape(ab.size(0), ab.size(1), -1).transpose(1, 2)  # (N, C, H, W) -> (N, H*W, C)
+                ab = ab.reshape(ab.size(0), ab.size(1), -1).transpose(
+                    1, 2
+                )  # (N, C, H, W) -> (N, H*W, C)
 
             ab = torch.nn.functional.linear(ab, lora_A)
             ab = torch.nn.functional.linear(ab, lora_B)
 
             if self.is_conv2d:
-                ab = ab.transpose(1, 2).reshape(ab.size(0), -1, *x.size()[2:])  # (N, H*W, C) -> (N, C, H, W)
+                ab = ab.transpose(1, 2).reshape(
+                    ab.size(0), -1, *x.size()[2:]
+                )  # (N, H*W, C) -> (N, C, H, W)
 
         # 最後の項は、低rankをより大きくするためのスケーリング（じゃないかな）
-        result = result + ab * self.scale * math.sqrt(self.lora_dim / (trainable_rank + self.unit))
+        result = result + ab * self.scale * math.sqrt(
+            self.lora_dim / (trainable_rank + self.unit)
+        )
 
         # NOTE weightに加算してからlinear/conv2dを呼んだほうが速いかも
         return result
@@ -123,7 +159,9 @@ class DyLoRAModule(torch.nn.Module):
     def state_dict(self, destination=None, prefix="", keep_vars=False):
         # state dictを通常のLoRAと同じにする:
         # nn.ParameterListは `.lora_A.0` みたいな名前になるので、forwardと同様にcatして入れ替える
-        sd = super().state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars)
+        sd = super().state_dict(
+            destination=destination, prefix=prefix, keep_vars=keep_vars
+        )
 
         lora_A_weight = torch.cat(tuple(self.lora_A), dim=0)
         if self.is_conv2d and not self.is_conv2d_3x3:
@@ -133,8 +171,12 @@ class DyLoRAModule(torch.nn.Module):
         if self.is_conv2d and not self.is_conv2d_3x3:
             lora_B_weight = lora_B_weight.unsqueeze(-1).unsqueeze(-1)
 
-        sd[self.lora_name + ".lora_down.weight"] = lora_A_weight if keep_vars else lora_A_weight.detach()
-        sd[self.lora_name + ".lora_up.weight"] = lora_B_weight if keep_vars else lora_B_weight.detach()
+        sd[self.lora_name + ".lora_down.weight"] = (
+            lora_A_weight if keep_vars else lora_A_weight.detach()
+        )
+        sd[self.lora_name + ".lora_up.weight"] = (
+            lora_B_weight if keep_vars else lora_B_weight.detach()
+        )
 
         i = 0
         while True:
@@ -148,7 +190,16 @@ class DyLoRAModule(torch.nn.Module):
             i += 1
         return sd
 
-    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
         # 通常のLoRAと同じstate dictを読み込めるようにする：この方法はchatGPTに聞いた
         lora_A_weight = state_dict.pop(self.lora_name + ".lora_down.weight", None)
         lora_B_weight = state_dict.pop(self.lora_name + ".lora_up.weight", None)
@@ -164,13 +215,31 @@ class DyLoRAModule(torch.nn.Module):
             lora_B_weight = lora_B_weight.squeeze(-1).squeeze(-1)
 
         state_dict.update(
-            {f"{self.lora_name}.lora_A.{i}": nn.Parameter(lora_A_weight[i].unsqueeze(0)) for i in range(lora_A_weight.size(0))}
+            {
+                f"{self.lora_name}.lora_A.{i}": nn.Parameter(
+                    lora_A_weight[i].unsqueeze(0)
+                )
+                for i in range(lora_A_weight.size(0))
+            }
         )
         state_dict.update(
-            {f"{self.lora_name}.lora_B.{i}": nn.Parameter(lora_B_weight[:, i].unsqueeze(1)) for i in range(lora_B_weight.size(1))}
+            {
+                f"{self.lora_name}.lora_B.{i}": nn.Parameter(
+                    lora_B_weight[:, i].unsqueeze(1)
+                )
+                for i in range(lora_B_weight.size(1))
+            }
         )
 
-        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
 
 def create_network(
@@ -218,17 +287,40 @@ def create_network(
     loraplus_lr_ratio = kwargs.get("loraplus_lr_ratio", None)
     loraplus_unet_lr_ratio = kwargs.get("loraplus_unet_lr_ratio", None)
     loraplus_text_encoder_lr_ratio = kwargs.get("loraplus_text_encoder_lr_ratio", None)
-    loraplus_lr_ratio = float(loraplus_lr_ratio) if loraplus_lr_ratio is not None else None
-    loraplus_unet_lr_ratio = float(loraplus_unet_lr_ratio) if loraplus_unet_lr_ratio is not None else None
-    loraplus_text_encoder_lr_ratio = float(loraplus_text_encoder_lr_ratio) if loraplus_text_encoder_lr_ratio is not None else None
-    if loraplus_lr_ratio is not None or loraplus_unet_lr_ratio is not None or loraplus_text_encoder_lr_ratio is not None:
-        network.set_loraplus_lr_ratio(loraplus_lr_ratio, loraplus_unet_lr_ratio, loraplus_text_encoder_lr_ratio)
+    loraplus_lr_ratio = (
+        float(loraplus_lr_ratio) if loraplus_lr_ratio is not None else None
+    )
+    loraplus_unet_lr_ratio = (
+        float(loraplus_unet_lr_ratio) if loraplus_unet_lr_ratio is not None else None
+    )
+    loraplus_text_encoder_lr_ratio = (
+        float(loraplus_text_encoder_lr_ratio)
+        if loraplus_text_encoder_lr_ratio is not None
+        else None
+    )
+    if (
+        loraplus_lr_ratio is not None
+        or loraplus_unet_lr_ratio is not None
+        or loraplus_text_encoder_lr_ratio is not None
+    ):
+        network.set_loraplus_lr_ratio(
+            loraplus_lr_ratio, loraplus_unet_lr_ratio, loraplus_text_encoder_lr_ratio
+        )
 
     return network
 
 
 # Create network from weights for inference, weights are not loaded here (because can be merged)
-def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weights_sd=None, for_inference=False, **kwargs):
+def create_network_from_weights(
+    multiplier,
+    file,
+    vae,
+    text_encoder,
+    unet,
+    weights_sd=None,
+    for_inference=False,
+    **kwargs,
+):
     if weights_sd is None:
         if os.path.splitext(file)[1] == ".safetensors":
             from safetensors.torch import load_file, safe_open
@@ -260,14 +352,23 @@ def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weigh
     module_class = DyLoRAModule
 
     network = DyLoRANetwork(
-        text_encoder, unet, multiplier=multiplier, modules_dim=modules_dim, modules_alpha=modules_alpha, module_class=module_class
+        text_encoder,
+        unet,
+        multiplier=multiplier,
+        modules_dim=modules_dim,
+        modules_alpha=modules_alpha,
+        module_class=module_class,
     )
     return network, weights_sd
 
 
 class DyLoRANetwork(torch.nn.Module):
     UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
-    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
+    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = [
+        "ResnetBlock2D",
+        "Downsample2D",
+        "Upsample2D",
+    ]
     TEXT_ENCODER_TARGET_REPLACE_MODULE = ["CLIPAttention", "CLIPMLP"]
     LORA_PREFIX_UNET = "lora_unet"
     LORA_PREFIX_TEXT_ENCODER = "lora_te"
@@ -300,13 +401,21 @@ class DyLoRANetwork(torch.nn.Module):
         if modules_dim is not None:
             logger.info("create LoRA network from weights")
         else:
-            logger.info(f"create LoRA network. base dim (rank): {lora_dim}, alpha: {alpha}, unit: {unit}")
+            logger.info(
+                f"create LoRA network. base dim (rank): {lora_dim}, alpha: {alpha}, unit: {unit}"
+            )
             if self.apply_to_conv:
                 logger.info("apply LoRA to Conv2d with kernel size (3,3).")
 
         # create module instances
-        def create_modules(is_unet, root_module: torch.nn.Module, target_replace_modules) -> List[DyLoRAModule]:
-            prefix = DyLoRANetwork.LORA_PREFIX_UNET if is_unet else DyLoRANetwork.LORA_PREFIX_TEXT_ENCODER
+        def create_modules(
+            is_unet, root_module: torch.nn.Module, target_replace_modules
+        ) -> List[DyLoRAModule]:
+            prefix = (
+                DyLoRANetwork.LORA_PREFIX_UNET
+                if is_unet
+                else DyLoRANetwork.LORA_PREFIX_TEXT_ENCODER
+            )
             loras = []
             for name, module in root_module.named_modules():
                 if module.__class__.__name__ in target_replace_modules:
@@ -334,7 +443,14 @@ class DyLoRANetwork(torch.nn.Module):
                                 continue
 
                             # dropout and fan_in_fan_out is default
-                            lora = module_class(lora_name, child_module, self.multiplier, dim, alpha, unit)
+                            lora = module_class(
+                                lora_name,
+                                child_module,
+                                self.multiplier,
+                                dim,
+                                alpha,
+                                unit,
+                            )
                             loras.append(lora)
             return loras
 
@@ -349,11 +465,15 @@ class DyLoRANetwork(torch.nn.Module):
                 index = None
                 logger.info("create LoRA for Text Encoder")
 
-            text_encoder_loras = create_modules(False, text_encoder, DyLoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
+            text_encoder_loras = create_modules(
+                False, text_encoder, DyLoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE
+            )
             self.text_encoder_loras.extend(text_encoder_loras)
 
         # self.text_encoder_loras = create_modules(False, text_encoder, DyLoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
-        logger.info(f"create LoRA for Text Encoder: {len(self.text_encoder_loras)} modules.")
+        logger.info(
+            f"create LoRA for Text Encoder: {len(self.text_encoder_loras)} modules."
+        )
 
         # extend U-Net target modules if conv2d 3x3 is enabled, or load from weights
         target_modules = DyLoRANetwork.UNET_TARGET_REPLACE_MODULE
@@ -363,13 +483,19 @@ class DyLoRANetwork(torch.nn.Module):
         self.unet_loras = create_modules(True, unet, target_modules)
         logger.info(f"create LoRA for U-Net: {len(self.unet_loras)} modules.")
 
-    def set_loraplus_lr_ratio(self, loraplus_lr_ratio, loraplus_unet_lr_ratio, loraplus_text_encoder_lr_ratio):
+    def set_loraplus_lr_ratio(
+        self, loraplus_lr_ratio, loraplus_unet_lr_ratio, loraplus_text_encoder_lr_ratio
+    ):
         self.loraplus_lr_ratio = loraplus_lr_ratio
         self.loraplus_unet_lr_ratio = loraplus_unet_lr_ratio
         self.loraplus_text_encoder_lr_ratio = loraplus_text_encoder_lr_ratio
 
-        logger.info(f"LoRA+ UNet LR Ratio: {self.loraplus_unet_lr_ratio or self.loraplus_lr_ratio}")
-        logger.info(f"LoRA+ Text Encoder LR Ratio: {self.loraplus_text_encoder_lr_ratio or self.loraplus_lr_ratio}")
+        logger.info(
+            f"LoRA+ UNet LR Ratio: {self.loraplus_unet_lr_ratio or self.loraplus_lr_ratio}"
+        )
+        logger.info(
+            f"LoRA+ Text Encoder LR Ratio: {self.loraplus_text_encoder_lr_ratio or self.loraplus_lr_ratio}"
+        )
 
     def set_multiplier(self, multiplier):
         self.multiplier = multiplier
@@ -458,7 +584,10 @@ class DyLoRANetwork(torch.nn.Module):
                     else:
                         param_data["lr"] = lr
 
-                if param_data.get("lr", None) == 0 or param_data.get("lr", None) is None:
+                if (
+                    param_data.get("lr", None) == 0
+                    or param_data.get("lr", None) is None
+                ):
                     continue
 
                 params.append(param_data)
@@ -475,7 +604,9 @@ class DyLoRANetwork(torch.nn.Module):
 
         if self.unet_loras:
             params = assemble_params(
-                self.unet_loras, default_lr if unet_lr is None else unet_lr, self.loraplus_unet_lr_ratio or self.loraplus_lr_ratio
+                self.unet_loras,
+                default_lr if unet_lr is None else unet_lr,
+                self.loraplus_unet_lr_ratio or self.loraplus_lr_ratio,
             )
             all_params.extend(params)
 
@@ -507,13 +638,15 @@ class DyLoRANetwork(torch.nn.Module):
                 state_dict[key] = v
 
         if os.path.splitext(file)[1] == ".safetensors":
-            from safetensors.torch import save_file
             from library import train_util
+            from safetensors.torch import save_file
 
             # Precalculate model hashes to save time on indexing
             if metadata is None:
                 metadata = {}
-            model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(state_dict, metadata)
+            model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+                state_dict, metadata
+            )
             metadata["sshs_model_hash"] = model_hash
             metadata["sshs_legacy_hash"] = legacy_hash
 
@@ -525,5 +658,7 @@ class DyLoRANetwork(torch.nn.Module):
     def set_region(self, sub_prompt_index, is_last_network, mask):
         pass
 
-    def set_current_generation(self, batch_size, num_sub_prompts, width, height, shared):
+    def set_current_generation(
+        self, batch_size, num_sub_prompts, width, height, shared
+    ):
         pass

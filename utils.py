@@ -1,31 +1,33 @@
+import base64
+import csv
+import imghdr
 import shutil
-
+from io import BytesIO
 from pathlib import Path
+from typing import Optional, get_type_hints
 
+import requests
 from datasets import load_dataset
-from pathlib import Path
 from PIL import Image
 
-import base64
-import imghdr
-import requests
-from io import BytesIO
-import csv
 import constants as const
-from typing import Optional, get_type_hints
 
 
 def filter_config_arguments(config, config_class):
     type_hints = get_type_hints(config_class)
-    filtered_args = { k: v for k, v in config.items() if k in type_hints and isinstance(v, type_hints[k])}
+    filtered_args = {
+        k: v
+        for k, v in config.items()
+        if k in type_hints and isinstance(v, type_hints[k])
+    }
     return config_class(**filtered_args)
 
 
 def is_platform_json_file(filename, folder_path):
     # TODO: use different approach other than filename
     files = [f for f in folder_path.iterdir() if f.is_file()]
-    print(filename == 'result.json', len(files) == 1)
-    if filename == 'result.json' and len(files) == 1:
+    print(filename == "result.json", len(files) == 1)
+    if filename == "result.json" and len(files) == 1:
         return True
     else:
         return False
@@ -48,7 +50,7 @@ def clean_folder(folder_path):
 def get_first_json_file(folder_path):
     folder = Path(folder_path)
     for file in folder.iterdir():
-        if file.is_file() and file.suffix == '.json':
+        if file.is_file() and file.suffix == ".json":
             return file.name, file
     return None, None
 
@@ -92,13 +94,13 @@ def get_image(image_input):
 
 
 def create_local_dataset(dataset, dataset_dir, config):
-    image_column = config.get('image_column', const.IMG_COL)
-    prompt_column = config.get('caption_column', const.PROMPT_COL)
-    prompt = config['instance_prompt']
-    resolution = config['resolution']
+    image_column = config.get("image_column", const.IMG_COL)
+    prompt_column = config.get("caption_column", const.PROMPT_COL)
+    prompt = config["instance_prompt"]
+    resolution = config["resolution"]
 
     dataset_dir.mkdir(parents=True, exist_ok=True)
-    subset_dir = dataset_dir.joinpath('images')
+    subset_dir = dataset_dir.joinpath("images")
     subset_dir.mkdir(parents=True, exist_ok=True)
     # metadata = []
 
@@ -122,26 +124,19 @@ def create_local_dataset(dataset, dataset_dir, config):
                 prompt = str(item[prompt_column] if item[prompt_column] else prompt)
             # prompt_path = subset_dir.joinpath(f"{i}.txt")
             # with open(prompt_path, "w", encoding="utf-8") as f:
-            #     f.write(prompt)                
+            #     f.write(prompt)
             # metadata.append({"image": img_name, "prompt": prompt})
-        
+
     # with open(subset_dir.joinpath('metadata.csv'), 'w',) as csvfile:
     #     writer = csv.writer(csvfile)
     #     writer.writerow(['file_name', 'text'])
     #     for item in metadata:
     #         writer.writerow([item['image'], item['prompt']])
 
-
-            
-    return list('images')
+    return list("images")
 
 
-def gen_toml(
-        folder_list,
-        dataset_dir,
-        config
-
-):
+def gen_toml(folder_list, dataset_dir, config):
     toml = f"""[general]
 shuffle_caption = false
 caption_extension = '.txt'
@@ -158,6 +153,7 @@ class_tokens = '{config['instance_prompt']}'
 num_repeats = 1
 """
     return toml
+
 
 # def gen_toml(
 #   folder_list,

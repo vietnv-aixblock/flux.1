@@ -3,7 +3,8 @@
 
 import os
 import re
-from typing import Optional, List, Type
+from typing import List, Optional, Type
+
 import torch
 from library import sdxl_original_unet
 from library.utils import setup_logging
@@ -44,23 +45,43 @@ ORIGINAL_LINEAR = torch.nn.Linear
 ORIGINAL_CONV2D = torch.nn.Conv2d
 
 
-def add_lllite_modules(module: torch.nn.Module, in_dim: int, depth, cond_emb_dim, mlp_dim) -> None:
+def add_lllite_modules(
+    module: torch.nn.Module, in_dim: int, depth, cond_emb_dim, mlp_dim
+) -> None:
     # conditioning1はconditioning imageを embedding する。timestepごとに呼ばれない
     # conditioning1 embeds conditioning image. it is not called for each timestep
     modules = []
-    modules.append(ORIGINAL_CONV2D(3, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0))  # to latent (from VAE) size
+    modules.append(
+        ORIGINAL_CONV2D(3, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0)
+    )  # to latent (from VAE) size
     if depth == 1:
         modules.append(torch.nn.ReLU(inplace=True))
-        modules.append(ORIGINAL_CONV2D(cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0))
+        modules.append(
+            ORIGINAL_CONV2D(
+                cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0
+            )
+        )
     elif depth == 2:
         modules.append(torch.nn.ReLU(inplace=True))
-        modules.append(ORIGINAL_CONV2D(cond_emb_dim // 2, cond_emb_dim, kernel_size=4, stride=4, padding=0))
+        modules.append(
+            ORIGINAL_CONV2D(
+                cond_emb_dim // 2, cond_emb_dim, kernel_size=4, stride=4, padding=0
+            )
+        )
     elif depth == 3:
         # kernel size 8は大きすぎるので、4にする / kernel size 8 is too large, so set it to 4
         modules.append(torch.nn.ReLU(inplace=True))
-        modules.append(ORIGINAL_CONV2D(cond_emb_dim // 2, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0))
+        modules.append(
+            ORIGINAL_CONV2D(
+                cond_emb_dim // 2, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0
+            )
+        )
         modules.append(torch.nn.ReLU(inplace=True))
-        modules.append(ORIGINAL_CONV2D(cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0))
+        modules.append(
+            ORIGINAL_CONV2D(
+                cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0
+            )
+        )
 
     module.lllite_conditioning1 = torch.nn.Sequential(*modules)
 
@@ -94,7 +115,9 @@ class LLLiteLinear(ORIGINAL_LINEAR):
         super().__init__(in_features, out_features, **kwargs)
         self.enabled = False
 
-    def set_lllite(self, depth, cond_emb_dim, name, mlp_dim, dropout=None, multiplier=1.0):
+    def set_lllite(
+        self, depth, cond_emb_dim, name, mlp_dim, dropout=None, multiplier=1.0
+    ):
         self.enabled = True
         self.lllite_name = name
         self.cond_emb_dim = cond_emb_dim
@@ -113,7 +136,9 @@ class LLLiteLinear(ORIGINAL_LINEAR):
         if not self.enabled:
             return super().forward(x)
 
-        cx = self.lllite_conditioning1(self.cond_image)  # make forward and backward compatible
+        cx = self.lllite_conditioning1(
+            self.cond_image
+        )  # make forward and backward compatible
 
         # reshape / b,c,h,w -> b,h*w,c
         n, c, h, w = cx.shape
@@ -127,7 +152,9 @@ class LLLiteLinear(ORIGINAL_LINEAR):
 
         cx = self.lllite_up(cx) * self.multiplier
 
-        x = super().forward(x + cx)  # ここで元のモジュールを呼び出す / call the original module here
+        x = super().forward(
+            x + cx
+        )  # ここで元のモジュールを呼び出す / call the original module here
         return x
 
 
@@ -136,7 +163,9 @@ class LLLiteConv2d(ORIGINAL_CONV2D):
         super().__init__(in_channels, out_channels, kernel_size, **kwargs)
         self.enabled = False
 
-    def set_lllite(self, depth, cond_emb_dim, name, mlp_dim, dropout=None, multiplier=1.0):
+    def set_lllite(
+        self, depth, cond_emb_dim, name, mlp_dim, dropout=None, multiplier=1.0
+    ):
         self.enabled = True
         self.lllite_name = name
         self.cond_emb_dim = cond_emb_dim
@@ -167,13 +196,21 @@ class LLLiteConv2d(ORIGINAL_CONV2D):
 
         cx = self.up(cx) * self.multiplier
 
-        x = super().forward(x + cx)  # ここで元のモジュールを呼び出す / call the original module here
+        x = super().forward(
+            x + cx
+        )  # ここで元のモジュールを呼び出す / call the original module here
         return x
 
 
-class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DConditionModel):
+class SdxlUNet2DConditionModelControlNetLLLite(
+    sdxl_original_unet.SdxlUNet2DConditionModel
+):
     UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
-    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
+    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = [
+        "ResnetBlock2D",
+        "Downsample2D",
+        "Upsample2D",
+    ]
     LLLITE_PREFIX = "lllite_unet"
 
     def __init__(self, **kwargs):
@@ -203,7 +240,9 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
                         if is_linear or (is_conv2d and not SKIP_CONV2D):
                             # block indexからdepthを計算: depthはconditioningのサイズやチャネルを計算するのに使う
                             # block index to depth: depth is using to calculate conditioning size and channels
-                            block_name, index1, index2 = (name + "." + child_name).split(".")[:3]
+                            block_name, index1, index2 = (
+                                name + "." + child_name
+                            ).split(".")[:3]
                             index1 = int(index1)
                             if block_name == "input_blocks":
                                 if SKIP_INPUT_BLOCKS:
@@ -235,12 +274,15 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
                             # time emb is not applied
                             # attn2 conditioning (input from CLIP) cannot be applied because the shape is different
                             if "emb_layers" in lllite_name or (
-                                "attn2" in lllite_name and ("to_k" in lllite_name or "to_v" in lllite_name)
+                                "attn2" in lllite_name
+                                and ("to_k" in lllite_name or "to_v" in lllite_name)
                             ):
                                 continue
 
                             if ATTN1_2_ONLY:
-                                if not ("attn1" in lllite_name or "attn2" in lllite_name):
+                                if not (
+                                    "attn1" in lllite_name or "attn2" in lllite_name
+                                ):
                                     continue
                                 if ATTN_QKV_ONLY:
                                     if "to_out" in lllite_name:
@@ -250,7 +292,9 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
                                 if "proj_out" in lllite_name:
                                     pass
                                 elif "attn1" in lllite_name and (
-                                    "to_k" in lllite_name or "to_v" in lllite_name or "to_out" in lllite_name
+                                    "to_k" in lllite_name
+                                    or "to_v" in lllite_name
+                                    or "to_out" in lllite_name
                                 ):
                                     pass
                                 elif "ff_net_2" in lllite_name:
@@ -258,18 +302,32 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
                                 else:
                                     continue
 
-                            child_module.set_lllite(depth, cond_emb_dim, lllite_name, mlp_dim, dropout, multiplier)
+                            child_module.set_lllite(
+                                depth,
+                                cond_emb_dim,
+                                lllite_name,
+                                mlp_dim,
+                                dropout,
+                                multiplier,
+                            )
                             modules.append(child_module)
 
             return modules
 
-        target_modules = SdxlUNet2DConditionModelControlNetLLLite.UNET_TARGET_REPLACE_MODULE
+        target_modules = (
+            SdxlUNet2DConditionModelControlNetLLLite.UNET_TARGET_REPLACE_MODULE
+        )
         if not TRANSFORMER_ONLY:
-            target_modules = target_modules + SdxlUNet2DConditionModelControlNetLLLite.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+            target_modules = (
+                target_modules
+                + SdxlUNet2DConditionModelControlNetLLLite.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+            )
 
         # create module instances
         self.lllite_modules = apply_to_modules(self, target_modules)
-        logger.info(f"enable ControlNet LLLite for U-Net: {len(self.lllite_modules)} modules.")
+        logger.info(
+            f"enable ControlNet LLLite for U-Net: {len(self.lllite_modules)} modules."
+        )
 
     # def prepare_optimizer_params(self):
     def prepare_params(self):
@@ -317,7 +375,9 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
             pos = key.find(".lllite")
             if pos < 0:
                 continue
-            lllite_key = SdxlUNet2DConditionModelControlNetLLLite.LLLITE_PREFIX + "." + key[:pos]
+            lllite_key = (
+                SdxlUNet2DConditionModelControlNetLLLite.LLLITE_PREFIX + "." + key[:pos]
+            )
             lllite_key = lllite_key.replace(".", "_") + key[pos:]
             lllite_key = lllite_key.replace(".lllite_", ".")
             state_dict[lllite_key] = org_state_dict[key]
@@ -366,7 +426,9 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
         # module_name = module_name.replace("skip_connection", "skip@connection")
         # module_name = module_name.replace("proj_in", "proj@in")
         # module_name = module_name.replace("proj_out", "proj@out")
-        pattern = re.compile(r"(_block|_layer|to_|time_embed|label_emb|skip_connection|proj_in|proj_out)")
+        pattern = re.compile(
+            r"(_block|_layer|to_|time_embed|label_emb|skip_connection|proj_in|proj_out)"
+        )
 
         # convert to lllite with U-Net state dict
         state_dict = non_lllite_unet_sd.copy() if non_lllite_unet_sd is not None else {}
@@ -378,7 +440,9 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
 
             module_name = key[:pos]
             weight_name = key[pos + 1 :]  # exclude "."
-            module_name = module_name.replace(SdxlUNet2DConditionModelControlNetLLLite.LLLITE_PREFIX + "_", "")
+            module_name = module_name.replace(
+                SdxlUNet2DConditionModelControlNetLLLite.LLLITE_PREFIX + "_", ""
+            )
 
             # これはうまくいかない。逆変換を考えなかった設計が悪い / this does not work well. bad design because I didn't think about inverse conversion
             # module_name = module_name.replace("_", ".")
@@ -399,14 +463,18 @@ class SdxlUNet2DConditionModelControlNetLLLite(sdxl_original_unet.SdxlUNet2DCond
         info = self.load_state_dict(state_dict, False)
         return info
 
-    def forward(self, x, timesteps=None, context=None, y=None, cond_image=None, **kwargs):
+    def forward(
+        self, x, timesteps=None, context=None, y=None, cond_image=None, **kwargs
+    ):
         for m in self.lllite_modules:
             m.set_cond_image(cond_image)
         return super().forward(x, timesteps, context, y, **kwargs)
 
 
 def replace_unet_linear_and_conv2d():
-    logger.info("replace torch.nn.Linear and torch.nn.Conv2d to LLLiteLinear and LLLiteConv2d in U-Net")
+    logger.info(
+        "replace torch.nn.Linear and torch.nn.Conv2d to LLLiteLinear and LLLiteConv2d in U-Net"
+    )
     sdxl_original_unet.torch.nn.Linear = LLLiteLinear
     sdxl_original_unet.torch.nn.Conv2d = LLLiteConv2d
 

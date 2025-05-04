@@ -6,15 +6,15 @@ import argparse
 import json
 import os
 import time
-import torch
-from safetensors.torch import load_file, save_file
-from safetensors import safe_open
-from tqdm import tqdm
-from library import flux_utils, sai_model_spec, model_util, sdxl_model_util
+
 import lora
-from library.utils import MemoryEfficientSafeOpen
-from library.utils import setup_logging
+import torch
+from library import flux_utils, model_util, sai_model_spec, sdxl_model_util
+from library.utils import MemoryEfficientSafeOpen, setup_logging
 from networks import lora_flux
+from safetensors import safe_open
+from safetensors.torch import load_file, save_file
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -92,7 +92,9 @@ def svd(
                 if device:
                     mat = mat.to(device)
                 out_dim, in_dim = mat.size()[0:2]
-                rank = min(dim, in_dim, out_dim)  # LoRA rank cannot exceed the original dim
+                rank = min(
+                    dim, in_dim, out_dim
+                )  # LoRA rank cannot exceed the original dim
 
                 mat = mat.squeeze()
 
@@ -125,7 +127,9 @@ def svd(
         lora_name = lora_flux.LoRANetwork.LORA_PREFIX_FLUX + "_" + lora_name
         lora_sd[lora_name + ".lora_up.weight"] = up_weight
         lora_sd[lora_name + ".lora_down.weight"] = down_weight
-        lora_sd[lora_name + ".alpha"] = torch.tensor(down_weight.size()[0])  # same as rank
+        lora_sd[lora_name + ".alpha"] = torch.tensor(
+            down_weight.size()[0]
+        )  # same as rank
 
     # minimum metadata
     net_kwargs = {}
@@ -140,7 +144,9 @@ def svd(
 
     if not no_metadata:
         title = os.path.splitext(os.path.basename(save_to))[0]
-        sai_metadata = sai_model_spec.build_metadata(lora_sd, False, False, False, True, False, time.time(), title, flux="dev")
+        sai_metadata = sai_model_spec.build_metadata(
+            lora_sd, False, False, False, True, False, time.time(), title, flux="dev"
+        )
         metadata.update(sai_metadata)
 
     save_to_file(save_to, lora_sd, metadata, save_dtype)
@@ -185,10 +191,16 @@ def setup_parser() -> argparse.ArgumentParser:
         help="destination file name: safetensors file / 保存先のファイル名、safetensors",
     )
     parser.add_argument(
-        "--dim", type=int, default=4, help="dimension (rank) of LoRA (default 4) / LoRAの次元数（rank）（デフォルト4）"
+        "--dim",
+        type=int,
+        default=4,
+        help="dimension (rank) of LoRA (default 4) / LoRAの次元数（rank）（デフォルト4）",
     )
     parser.add_argument(
-        "--device", type=str, default=None, help="device to use, cuda for GPU / 計算を行うデバイス、cuda でGPUを使う"
+        "--device",
+        type=str,
+        default=None,
+        help="device to use, cuda for GPU / 計算を行うデバイス、cuda でGPUを使う",
     )
     parser.add_argument(
         "--clamp_quantile",

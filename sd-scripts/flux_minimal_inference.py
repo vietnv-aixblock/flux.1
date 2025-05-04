@@ -6,19 +6,18 @@ import math
 import os
 import random
 from typing import Callable, List, Optional
+
+import accelerate
 import einops
 import numpy as np
-
 import torch
-from tqdm import tqdm
-from PIL import Image
-import accelerate
-from transformers import CLIPTextModel
-from safetensors.torch import load_file
-
 from library import device_utils
-from library.device_utils import init_ipex, get_preferred_device
+from library.device_utils import get_preferred_device, init_ipex
 from networks import oft_flux
+from PIL import Image
+from safetensors.torch import load_file
+from tqdm import tqdm
+from transformers import CLIPTextModel
 
 init_ipex()
 
@@ -38,7 +37,9 @@ def time_shift(mu: float, sigma: float, t: torch.Tensor):
     return math.exp(mu) / (math.exp(mu) + (1 / t - 1) ** sigma)
 
 
-def get_lin_function(x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15) -> Callable[[float], float]:
+def get_lin_function(
+    x1: float = 256, y1: float = 0.5, x2: float = 4096, y2: float = 1.15
+) -> Callable[[float], float]:
     m = (y2 - y1) / (x2 - x1)
     b = y1 - m * x1
     return lambda x: m * x + b
@@ -80,7 +81,9 @@ def denoise(
 ):
     # this is ignored for schnell
     logger.info(f"guidance: {guidance}, cfg_scale: {cfg_scale}")
-    guidance_vec = torch.full((img.shape[0],), guidance, device=img.device, dtype=img.dtype)
+    guidance_vec = torch.full(
+        (img.shape[0],), guidance, device=img.device, dtype=img.dtype
+    )
 
     # prepare classifier free guidance
     if neg_txt is not None and neg_vec is not None:
@@ -100,7 +103,9 @@ def denoise(
         b_t5_attn_mask = t5_attn_mask
 
     for t_curr, t_prev in zip(tqdm(timesteps[:-1]), timesteps[1:]):
-        t_vec = torch.full((b_img_ids.shape[0],), t_curr, dtype=img.dtype, device=img.device)
+        t_vec = torch.full(
+            (b_img_ids.shape[0],), t_curr, dtype=img.dtype, device=img.device
+        )
 
         # classifier free guidance
         if neg_txt is not None and neg_vec is not None:
@@ -209,7 +214,9 @@ def generate_image(
 
     # make first noise with packed shape
     # original: b,16,2*h//16,2*w//16, packed: b,h//16*w//16,16*2*2
-    packed_latent_height, packed_latent_width = math.ceil(image_height / 16), math.ceil(image_width / 16)
+    packed_latent_height, packed_latent_width = math.ceil(image_height / 16), math.ceil(
+        image_width / 16
+    )
     noise_dtype = torch.float32 if is_fp8(dtype) else dtype
     noise = torch.randn(
         1,
@@ -231,13 +238,19 @@ def generate_image(
     img_ids = flux_utils.prepare_img_ids(1, packed_latent_height, packed_latent_width)
 
     # prepare fp8 models
-    if is_fp8(clip_l_dtype) and (not hasattr(clip_l, "fp8_prepared") or not clip_l.fp8_prepared):
-        logger.info(f"prepare CLIP-L for fp8: set to {clip_l_dtype}, set embeddings to {torch.bfloat16}")
+    if is_fp8(clip_l_dtype) and (
+        not hasattr(clip_l, "fp8_prepared") or not clip_l.fp8_prepared
+    ):
+        logger.info(
+            f"prepare CLIP-L for fp8: set to {clip_l_dtype}, set embeddings to {torch.bfloat16}"
+        )
         clip_l.to(clip_l_dtype)  # fp8
         clip_l.text_model.embeddings.to(dtype=torch.bfloat16)
         clip_l.fp8_prepared = True
 
-    if is_fp8(t5xxl_dtype) and (not hasattr(t5xxl, "fp8_prepared") or not t5xxl.fp8_prepared):
+    if is_fp8(t5xxl_dtype) and (
+        not hasattr(t5xxl, "fp8_prepared") or not t5xxl.fp8_prepared
+    ):
         logger.info(f"prepare T5xxl for fp8: set to {t5xxl_dtype}")
 
         def prepare_fp8(text_encoder, target_dtype):
@@ -275,20 +288,30 @@ def generate_image(
         with torch.no_grad():
             if is_fp8(clip_l_dtype):
                 with accelerator.autocast():
-                    l_pooled, _, _, _ = encoding_strategy.encode_tokens(tokenize_strategy, [clip_l, None], tokens_and_masks)
+                    l_pooled, _, _, _ = encoding_strategy.encode_tokens(
+                        tokenize_strategy, [clip_l, None], tokens_and_masks
+                    )
             else:
                 with torch.autocast(device_type=device.type, dtype=clip_l_dtype):
-                    l_pooled, _, _, _ = encoding_strategy.encode_tokens(tokenize_strategy, [clip_l, None], tokens_and_masks)
+                    l_pooled, _, _, _ = encoding_strategy.encode_tokens(
+                        tokenize_strategy, [clip_l, None], tokens_and_masks
+                    )
 
             if is_fp8(t5xxl_dtype):
                 with accelerator.autocast():
                     _, t5_out, txt_ids, t5_attn_mask = encoding_strategy.encode_tokens(
-                        tokenize_strategy, [clip_l, t5xxl], tokens_and_masks, args.apply_t5_attn_mask
+                        tokenize_strategy,
+                        [clip_l, t5xxl],
+                        tokens_and_masks,
+                        args.apply_t5_attn_mask,
                     )
             else:
                 with torch.autocast(device_type=device.type, dtype=t5xxl_dtype):
                     _, t5_out, txt_ids, t5_attn_mask = encoding_strategy.encode_tokens(
-                        tokenize_strategy, [None, t5xxl], tokens_and_masks, args.apply_t5_attn_mask
+                        tokenize_strategy,
+                        [None, t5xxl],
+                        tokens_and_masks,
+                        args.apply_t5_attn_mask,
                     )
         return l_pooled, t5_out, txt_ids, t5_attn_mask
 
@@ -345,7 +368,14 @@ def generate_image(
 
     # unpack
     x = x.float()
-    x = einops.rearrange(x, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=packed_latent_height, w=packed_latent_width, ph=2, pw=2)
+    x = einops.rearrange(
+        x,
+        "b (h w) (c ph pw) -> b c (h ph) (w pw)",
+        h=packed_latent_height,
+        w=packed_latent_width,
+        ph=2,
+        pw=2,
+    )
 
     # decode
     logger.info("Decoding image...")
@@ -367,7 +397,9 @@ def generate_image(
     # save image
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    output_path = os.path.join(
+        output_dir, f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    )
     img.save(output_path)
 
     logger.info(f"Saved image to {output_path}")
@@ -392,12 +424,19 @@ if __name__ == "__main__":
     parser.add_argument("--prompt", type=str, default="A photo of a cat")
     parser.add_argument("--output_dir", type=str, default=".")
     parser.add_argument("--dtype", type=str, default="bfloat16", help="base dtype")
-    parser.add_argument("--clip_l_dtype", type=str, default=None, help="dtype for clip_l")
+    parser.add_argument(
+        "--clip_l_dtype", type=str, default=None, help="dtype for clip_l"
+    )
     parser.add_argument("--ae_dtype", type=str, default=None, help="dtype for ae")
     parser.add_argument("--t5xxl_dtype", type=str, default=None, help="dtype for t5xxl")
     parser.add_argument("--flux_dtype", type=str, default=None, help="dtype for flux")
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--steps", type=int, default=None, help="Number of steps. Default is 4 for schnell, 50 for dev")
+    parser.add_argument(
+        "--steps",
+        type=int,
+        default=None,
+        help="Number of steps. Default is 4 for schnell, 50 for dev",
+    )
     parser.add_argument("--guidance", type=float, default=3.5)
     parser.add_argument("--negative_prompt", type=str, default=None)
     parser.add_argument("--cfg_scale", type=float, default=1.0)
@@ -409,7 +448,9 @@ if __name__ == "__main__":
         default=[],
         help="LoRA weights, only supports networks.lora_flux and lora_oft, each argument is a `path;multiplier` (semi-colon separated)",
     )
-    parser.add_argument("--merge_lora_weights", action="store_true", help="Merge LoRA weights to model")
+    parser.add_argument(
+        "--merge_lora_weights", action="store_true", help="Merge LoRA weights to model"
+    )
     parser.add_argument("--width", type=int, default=target_width)
     parser.add_argument("--height", type=int, default=target_height)
     parser.add_argument("--interactive", action="store_true")
@@ -420,7 +461,12 @@ if __name__ == "__main__":
     guidance_scale = args.guidance
 
     def is_fp8(dt):
-        return dt in [torch.float8_e4m3fn, torch.float8_e4m3fnuz, torch.float8_e5m2, torch.float8_e5m2fnuz]
+        return dt in [
+            torch.float8_e4m3fn,
+            torch.float8_e4m3fnuz,
+            torch.float8_e5m2,
+            torch.float8_e5m2fnuz,
+        ]
 
     dtype = str_to_dtype(args.dtype)
     clip_l_dtype = str_to_dtype(args.clip_l_dtype, dtype)
@@ -428,11 +474,15 @@ if __name__ == "__main__":
     ae_dtype = str_to_dtype(args.ae_dtype, dtype)
     flux_dtype = str_to_dtype(args.flux_dtype, dtype)
 
-    logger.info(f"Dtypes for clip_l, t5xxl, ae, flux: {clip_l_dtype}, {t5xxl_dtype}, {ae_dtype}, {flux_dtype}")
+    logger.info(
+        f"Dtypes for clip_l, t5xxl, ae, flux: {clip_l_dtype}, {t5xxl_dtype}, {ae_dtype}, {flux_dtype}"
+    )
 
     loading_device = "cpu" if args.offload else device
 
-    use_fp8 = [is_fp8(d) for d in [dtype, clip_l_dtype, t5xxl_dtype, ae_dtype, flux_dtype]]
+    use_fp8 = [
+        is_fp8(d) for d in [dtype, clip_l_dtype, t5xxl_dtype, ae_dtype, flux_dtype]
+    ]
     if any(use_fp8):
         accelerator = accelerate.Accelerator(mixed_precision="bf16")
     else:
@@ -492,7 +542,9 @@ if __name__ == "__main__":
                 break
 
         module = lora_flux if is_lora else oft_flux
-        lora_model, _ = module.create_network_from_weights(multiplier, None, ae, [clip_l, t5xxl], model, weights_sd, True)
+        lora_model, _ = module.create_network_from_weights(
+            multiplier, None, ae, [clip_l, t5xxl], model, weights_sd, True
+        )
 
         if args.merge_lora_weights:
             lora_model.merge_to([clip_l, t5xxl], model, weights_sd)
@@ -558,7 +610,9 @@ if __name__ == "__main__":
                     elif opt.startswith("m"):
                         mutipliers = opt[1:].strip().split(",")
                         if len(mutipliers) != len(lora_models):
-                            logger.error(f"Invalid number of multipliers, expected {len(lora_models)}")
+                            logger.error(
+                                f"Invalid number of multipliers, expected {len(lora_models)}"
+                            )
                             continue
                         for i, lora_model in enumerate(lora_models):
                             lora_model.set_multiplier(float(mutipliers[i]))
@@ -571,6 +625,19 @@ if __name__ == "__main__":
                 except ValueError as e:
                     logger.error(f"Invalid option: {opt}, {e}")
 
-            generate_image(model, clip_l, t5xxl, ae, prompt, seed, width, height, steps, guidance, negative_prompt, cfg_scale)
+            generate_image(
+                model,
+                clip_l,
+                t5xxl,
+                ae,
+                prompt,
+                seed,
+                width,
+                height,
+                steps,
+                guidance,
+                negative_prompt,
+                cfg_scale,
+            )
 
     logger.info("Done!")

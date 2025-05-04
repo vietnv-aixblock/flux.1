@@ -1,12 +1,18 @@
-from dataclasses import dataclass
 import math
 import re
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Union
-import torch
+
 import safetensors
-from safetensors.torch import load_file
+import torch
 from accelerate import init_empty_weights
-from transformers import CLIPTextModel, CLIPTextModelWithProjection, CLIPConfig, CLIPTextConfig
+from safetensors.torch import load_file
+from transformers import (
+    CLIPConfig,
+    CLIPTextConfig,
+    CLIPTextModel,
+    CLIPTextModelWithProjection,
+)
 
 from .utils import setup_logging
 
@@ -15,16 +21,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from library import sd3_models
-
 # TODO move some of functions to model_util.py
-from library import sdxl_model_util
-
-# region models
+from library import sd3_models, sdxl_model_util
+from library.flux_utils import load_t5xxl as flux_utils_load_t5xxl
 
 # TODO remove dependency on flux_utils
 from library.utils import load_safetensors
-from library.flux_utils import load_t5xxl as flux_utils_load_t5xxl
+
+# region models
 
 
 def analyze_state_dict_state(state_dict: Dict, prefix: str = ""):
@@ -37,7 +41,11 @@ def analyze_state_dict_state(state_dict: Dict, prefix: str = ""):
     pos_embed_max_size = round(math.sqrt(num_patches))
     adm_in_channels = state_dict[f"{prefix}y_embedder.mlp.0.weight"].shape[1]
     context_shape = state_dict[f"{prefix}context_embedder.weight"].shape
-    qk_norm = "rms" if f"{prefix}joint_blocks.0.context_block.attn.ln_k.weight" in state_dict.keys() else None
+    qk_norm = (
+        "rms"
+        if f"{prefix}joint_blocks.0.context_block.attn.ln_k.weight" in state_dict.keys()
+        else None
+    )
 
     #  x_block_self_attn_layers.append(int(key.split(".x_block.attn2.ln_k.weight")[0].split(".")[-1]))
     x_block_self_attn_layers = []
@@ -76,7 +84,10 @@ def analyze_state_dict_state(state_dict: Dict, prefix: str = ""):
 
 
 def load_mmdit(
-    state_dict: Dict, dtype: Optional[Union[str, torch.dtype]], device: Union[str, torch.device], attn_mode: str = "torch"
+    state_dict: Dict,
+    dtype: Optional[Union[str, torch.dtype]],
+    device: Union[str, torch.device],
+    attn_mode: str = "torch",
 ) -> sd3_models.MMDiT:
     mmdit_sd = {}
 
@@ -106,7 +117,10 @@ def load_clip_l(
 ):
     clip_l_sd = None
     if clip_l_path is None:
-        if "text_encoders.clip_l.transformer.text_model.embeddings.position_embedding.weight" in state_dict:
+        if (
+            "text_encoders.clip_l.transformer.text_model.embeddings.position_embedding.weight"
+            in state_dict
+        ):
             # found clip_l: remove prefix "text_encoders.clip_l."
             logger.info("clip_l is included in the checkpoint")
             clip_l_sd = {}
@@ -115,7 +129,9 @@ def load_clip_l(
                 if k.startswith(prefix):
                     clip_l_sd[k[len(prefix) :]] = state_dict.pop(k)
         elif clip_l_path is None:
-            logger.info("clip_l is not included in the checkpoint and clip_l_path is not provided")
+            logger.info(
+                "clip_l is not included in the checkpoint and clip_l_path is not provided"
+            )
             return None
 
     # load clip_l
@@ -146,7 +162,9 @@ def load_clip_l(
 
     if clip_l_sd is None:
         logger.info(f"Loading state dict from {clip_l_path}")
-        clip_l_sd = load_safetensors(clip_l_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+        clip_l_sd = load_safetensors(
+            clip_l_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+        )
 
     if "text_projection.weight" not in clip_l_sd:
         logger.info("Adding text_projection.weight to clip_l_sd")
@@ -166,7 +184,10 @@ def load_clip_g(
 ):
     clip_g_sd = None
     if state_dict is not None:
-        if "text_encoders.clip_g.transformer.text_model.embeddings.position_embedding.weight" in state_dict:
+        if (
+            "text_encoders.clip_g.transformer.text_model.embeddings.position_embedding.weight"
+            in state_dict
+        ):
             # found clip_g: remove prefix "text_encoders.clip_g."
             logger.info("clip_g is included in the checkpoint")
             clip_g_sd = {}
@@ -175,7 +196,9 @@ def load_clip_g(
                 if k.startswith(prefix):
                     clip_g_sd[k[len(prefix) :]] = state_dict.pop(k)
         elif clip_g_path is None:
-            logger.info("clip_g is not included in the checkpoint and clip_g_path is not provided")
+            logger.info(
+                "clip_g is not included in the checkpoint and clip_g_path is not provided"
+            )
             return None
 
     # load clip_g
@@ -206,7 +229,9 @@ def load_clip_g(
 
     if clip_g_sd is None:
         logger.info(f"Loading state dict from {clip_g_path}")
-        clip_g_sd = load_safetensors(clip_g_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+        clip_g_sd = load_safetensors(
+            clip_g_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+        )
     info = clip.load_state_dict(clip_g_sd, strict=False, assign=True)
     logger.info(f"Loaded CLIP-G: {info}")
     return clip
@@ -221,7 +246,10 @@ def load_t5xxl(
 ):
     t5xxl_sd = None
     if state_dict is not None:
-        if "text_encoders.t5xxl.transformer.encoder.block.0.layer.0.SelfAttention.k.weight" in state_dict:
+        if (
+            "text_encoders.t5xxl.transformer.encoder.block.0.layer.0.SelfAttention.k.weight"
+            in state_dict
+        ):
             # found t5xxl: remove prefix "text_encoders.t5xxl."
             logger.info("t5xxl is included in the checkpoint")
             t5xxl_sd = {}
@@ -230,10 +258,14 @@ def load_t5xxl(
                 if k.startswith(prefix):
                     t5xxl_sd[k[len(prefix) :]] = state_dict.pop(k)
         elif t5xxl_path is None:
-            logger.info("t5xxl is not included in the checkpoint and t5xxl_path is not provided")
+            logger.info(
+                "t5xxl is not included in the checkpoint and t5xxl_path is not provided"
+            )
             return None
 
-    return flux_utils_load_t5xxl(t5xxl_path, dtype, device, disable_mmap, state_dict=t5xxl_sd)
+    return flux_utils_load_t5xxl(
+        t5xxl_path, dtype, device, disable_mmap, state_dict=t5xxl_sd
+    )
 
 
 def load_vae(
@@ -260,7 +292,9 @@ def load_vae(
     logger.info("Loading state dict...")
     info = vae.load_state_dict(vae_sd)
     logger.info(f"Loaded VAE: {info}")
-    vae.to(device=device, dtype=vae_dtype)  # make sure it's in the right device and dtype
+    vae.to(
+        device=device, dtype=vae_dtype
+    )  # make sure it's in the right device and dtype
     return vae
 
 

@@ -1,9 +1,11 @@
 import math
+
 import torch
 from transformers import Adafactor
 
 # stochastic rounding for bfloat16
 # The implementation was provided by 2kpr. Thank you very much!
+
 
 def copy_stochastic_(target: torch.Tensor, source: torch.Tensor):
     """
@@ -51,7 +53,9 @@ def adafactor_step_param(self, p, group):
             state["exp_avg"] = torch.zeros_like(grad)
         if factored:
             state["exp_avg_sq_row"] = torch.zeros(grad_shape[:-1]).to(grad)
-            state["exp_avg_sq_col"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:]).to(grad)
+            state["exp_avg_sq_col"] = torch.zeros(grad_shape[:-2] + grad_shape[-1:]).to(
+                grad
+            )
         else:
             state["exp_avg_sq"] = torch.zeros_like(grad)
 

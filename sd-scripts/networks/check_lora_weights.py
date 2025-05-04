@@ -1,11 +1,15 @@
 import argparse
 import os
+
 import torch
-from safetensors.torch import load_file
 from library.utils import setup_logging
+from safetensors.torch import load_file
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 def main(file):
     logger.info(f"loading: {file}")
@@ -18,7 +22,13 @@ def main(file):
 
     keys = list(sd.keys())
     for key in keys:
-        if "lora_up" in key or "lora_down" in key or "lora_A" in key or "lora_B" in key or "oft_" in key:
+        if (
+            "lora_up" in key
+            or "lora_down" in key
+            or "lora_A" in key
+            or "lora_B" in key
+            or "oft_" in key
+        ):
             values.append((key, sd[key]))
     print(f"number of LoRA modules: {len(values)}")
 
@@ -29,13 +39,22 @@ def main(file):
 
     for key, value in values:
         value = value.to(torch.float32)
-        print(f"{key},{str(tuple(value.size())).replace(', ', '-')},{torch.mean(torch.abs(value))},{torch.min(torch.abs(value))}")
+        print(
+            f"{key},{str(tuple(value.size())).replace(', ', '-')},{torch.mean(torch.abs(value))},{torch.min(torch.abs(value))}"
+        )
 
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("file", type=str, help="model file to check / 重みを確認するモデルファイル")
-    parser.add_argument("-s", "--show_all_keys", action="store_true", help="show all keys / 全てのキーを表示する")
+    parser.add_argument(
+        "file", type=str, help="model file to check / 重みを確認するモデルファイル"
+    )
+    parser.add_argument(
+        "-s",
+        "--show_all_keys",
+        action="store_true",
+        help="show all keys / 全てのキーを表示する",
+    )
 
     return parser
 

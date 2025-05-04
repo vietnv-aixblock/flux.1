@@ -1,10 +1,13 @@
 import os
-from typing import Optional, List, Type
+from typing import List, Optional, Type
+
 import torch
 from library import sdxl_original_unet
 from library.utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
 
 # input_blocksに適用するかどうか / if True, input_blocks are not applied
@@ -36,7 +39,16 @@ TRANSFORMER_MAX_BLOCK_INDEX = None
 
 
 class LLLiteModule(torch.nn.Module):
-    def __init__(self, depth, cond_emb_dim, name, org_module, mlp_dim, dropout=None, multiplier=1.0):
+    def __init__(
+        self,
+        depth,
+        cond_emb_dim,
+        name,
+        org_module,
+        mlp_dim,
+        dropout=None,
+        multiplier=1.0,
+    ):
         super().__init__()
 
         self.is_conv2d = org_module.__class__.__name__ == "Conv2d"
@@ -54,19 +66,41 @@ class LLLiteModule(torch.nn.Module):
         # conditioning1はconditioning imageを embedding する。timestepごとに呼ばれない
         # conditioning1 embeds conditioning image. it is not called for each timestep
         modules = []
-        modules.append(torch.nn.Conv2d(3, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0))  # to latent (from VAE) size
+        modules.append(
+            torch.nn.Conv2d(3, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0)
+        )  # to latent (from VAE) size
         if depth == 1:
             modules.append(torch.nn.ReLU(inplace=True))
-            modules.append(torch.nn.Conv2d(cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0))
+            modules.append(
+                torch.nn.Conv2d(
+                    cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0
+                )
+            )
         elif depth == 2:
             modules.append(torch.nn.ReLU(inplace=True))
-            modules.append(torch.nn.Conv2d(cond_emb_dim // 2, cond_emb_dim, kernel_size=4, stride=4, padding=0))
+            modules.append(
+                torch.nn.Conv2d(
+                    cond_emb_dim // 2, cond_emb_dim, kernel_size=4, stride=4, padding=0
+                )
+            )
         elif depth == 3:
             # kernel size 8は大きすぎるので、4にする / kernel size 8 is too large, so set it to 4
             modules.append(torch.nn.ReLU(inplace=True))
-            modules.append(torch.nn.Conv2d(cond_emb_dim // 2, cond_emb_dim // 2, kernel_size=4, stride=4, padding=0))
+            modules.append(
+                torch.nn.Conv2d(
+                    cond_emb_dim // 2,
+                    cond_emb_dim // 2,
+                    kernel_size=4,
+                    stride=4,
+                    padding=0,
+                )
+            )
             modules.append(torch.nn.ReLU(inplace=True))
-            modules.append(torch.nn.Conv2d(cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0))
+            modules.append(
+                torch.nn.Conv2d(
+                    cond_emb_dim // 2, cond_emb_dim, kernel_size=2, stride=2, padding=0
+                )
+            )
 
         self.conditioning1 = torch.nn.Sequential(*modules)
 
@@ -85,7 +119,9 @@ class LLLiteModule(torch.nn.Module):
                 torch.nn.ReLU(inplace=True),
             )
             self.mid = torch.nn.Sequential(
-                torch.nn.Conv2d(mlp_dim + cond_emb_dim, mlp_dim, kernel_size=1, stride=1, padding=0),
+                torch.nn.Conv2d(
+                    mlp_dim + cond_emb_dim, mlp_dim, kernel_size=1, stride=1, padding=0
+                ),
                 torch.nn.ReLU(inplace=True),
             )
             self.up = torch.nn.Sequential(
@@ -154,7 +190,9 @@ class LLLiteModule(torch.nn.Module):
 
         cx = self.cond_emb
 
-        if not self.batch_cond_only and x.shape[0] // 2 == cx.shape[0]:  # inference only
+        if (
+            not self.batch_cond_only and x.shape[0] // 2 == cx.shape[0]
+        ):  # inference only
             cx = cx.repeat(2, 1, 1, 1) if self.is_conv2d else cx.repeat(2, 1, 1)
             if self.use_zeros_for_batch_uncond:
                 cx[0::2] = 0.0  # uncond is zero
@@ -165,7 +203,10 @@ class LLLiteModule(torch.nn.Module):
         # down reduces the number of input dimensions and combines it with conditioning image embedding
         # we expect that it will mix well by combining in the channel direction instead of adding
 
-        cx = torch.cat([cx, self.down(x if not self.batch_cond_only else x[1::2])], dim=1 if self.is_conv2d else 2)
+        cx = torch.cat(
+            [cx, self.down(x if not self.batch_cond_only else x[1::2])],
+            dim=1 if self.is_conv2d else 2,
+        )
         cx = self.mid(cx)
 
         if self.dropout is not None and self.training:
@@ -179,13 +220,19 @@ class LLLiteModule(torch.nn.Module):
             zx[1::2] += cx
             cx = zx
 
-        x = self.org_forward(x + cx)  # ここで元のモジュールを呼び出す / call the original module here
+        x = self.org_forward(
+            x + cx
+        )  # ここで元のモジュールを呼び出す / call the original module here
         return x
 
 
 class ControlNetLLLite(torch.nn.Module):
     UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
-    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
+    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = [
+        "ResnetBlock2D",
+        "Downsample2D",
+        "Upsample2D",
+    ]
 
     def __init__(
         self,
@@ -216,7 +263,9 @@ class ControlNetLLLite(torch.nn.Module):
                         if is_linear or (is_conv2d and not SKIP_CONV2D):
                             # block indexからdepthを計算: depthはconditioningのサイズやチャネルを計算するのに使う
                             # block index to depth: depth is using to calculate conditioning size and channels
-                            block_name, index1, index2 = (name + "." + child_name).split(".")[:3]
+                            block_name, index1, index2 = (
+                                name + "." + child_name
+                            ).split(".")[:3]
                             index1 = int(index1)
                             if block_name == "input_blocks":
                                 if SKIP_INPUT_BLOCKS:
@@ -248,12 +297,15 @@ class ControlNetLLLite(torch.nn.Module):
                             # time emb is not applied
                             # attn2 conditioning (input from CLIP) cannot be applied because the shape is different
                             if "emb_layers" in lllite_name or (
-                                "attn2" in lllite_name and ("to_k" in lllite_name or "to_v" in lllite_name)
+                                "attn2" in lllite_name
+                                and ("to_k" in lllite_name or "to_v" in lllite_name)
                             ):
                                 continue
 
                             if ATTN1_2_ONLY:
-                                if not ("attn1" in lllite_name or "attn2" in lllite_name):
+                                if not (
+                                    "attn1" in lllite_name or "attn2" in lllite_name
+                                ):
                                     continue
                                 if ATTN_QKV_ONLY:
                                     if "to_out" in lllite_name:
@@ -263,7 +315,9 @@ class ControlNetLLLite(torch.nn.Module):
                                 if "proj_out" in lllite_name:
                                     pass
                                 elif "attn1" in lllite_name and (
-                                    "to_k" in lllite_name or "to_v" in lllite_name or "to_out" in lllite_name
+                                    "to_k" in lllite_name
+                                    or "to_v" in lllite_name
+                                    or "to_out" in lllite_name
                                 ):
                                     pass
                                 elif "ff_net_2" in lllite_name:
@@ -285,11 +339,17 @@ class ControlNetLLLite(torch.nn.Module):
 
         target_modules = ControlNetLLLite.UNET_TARGET_REPLACE_MODULE
         if not TRANSFORMER_ONLY:
-            target_modules = target_modules + ControlNetLLLite.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+            target_modules = (
+                target_modules + ControlNetLLLite.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+            )
 
         # create module instances
-        self.unet_modules: List[LLLiteModule] = create_modules(unet, target_modules, LLLiteModule)
-        logger.info(f"create ControlNet LLLite for U-Net: {len(self.unet_modules)} modules.")
+        self.unet_modules: List[LLLiteModule] = create_modules(
+            unet, target_modules, LLLiteModule
+        )
+        logger.info(
+            f"create ControlNet LLLite for U-Net: {len(self.unet_modules)} modules."
+        )
 
     def forward(self, x):
         return x  # dummy
@@ -389,7 +449,9 @@ if __name__ == "__main__":
     logger.info(control_net)
 
     # logger.info number of parameters
-    logger.info(f"number of parameters {sum(p.numel() for p in control_net.parameters() if p.requires_grad)}")
+    logger.info(
+        f"number of parameters {sum(p.numel() for p in control_net.parameters() if p.requires_grad)}"
+    )
 
     input()
 

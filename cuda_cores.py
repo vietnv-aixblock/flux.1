@@ -1,11 +1,11 @@
 import ctypes
 import json
+import platform
+import re
+import subprocess
 from functools import wraps
 from typing import Any, Dict, List
 from warnings import warn
-import subprocess
-import re
-import platform
 
 # Constants from cuda.h
 CUDA_SUCCESS = 0
@@ -65,7 +65,7 @@ SEMVER_TO_ARCH = {
     (8, 0): "ampere",
     (8, 6): "ampere",
     (8, 7): "ada_lovelace",  # RTX 40 series
-    (8, 9): "ampere", 
+    (8, 9): "ampere",
 }
 
 MEMORY_BUS_WIDTH = {
@@ -91,6 +91,7 @@ DATA_RATE = {
     "ampere": 2,
     "ada_lovelace": 2,  # RTX 40 series
 }
+
 
 # Decorator for CUDA API calls
 def cuda_api_call(func):
@@ -202,6 +203,7 @@ def cuDeviceComputeCapability(major, minor, dev):
 def cuDeviceGetAttribute(pi, attrib, dev):
     return cuda.cuDeviceGetAttribute(pi, attrib, dev)
 
+
 def get_bandwidth(memory_clock_rate, memory_bus_width, data_rate):
     # Convert memory clock rate from Hz to GHz for readability
     memory_clock_rate_ghz = memory_clock_rate / 1e6
@@ -211,12 +213,14 @@ def get_bandwidth(memory_clock_rate, memory_bus_width, data_rate):
     bandwidth_gb_per_s = bandwidth
     return bandwidth_gb_per_s
 
+
 def calculate_tflops(cuda_cores, gpu_clock_mhz):
     # Convert clock speed from MHz to GHz
     gpu_clock_ghz = gpu_clock_mhz / 1000.0
     # Calculate TFLOPS
     tflops = (cuda_cores * gpu_clock_ghz * 2) / 1000.0
     return tflops
+
 
 @cuda_api_call_warn
 def cuCtxCreate(pctx, flags, dev):
@@ -253,15 +257,19 @@ def get_gpu_info_from_nvidia_smi():
             gpu_info.append({"id": gpu_id, "name": gpu_name, "uuid": gpu_uuid})
     return gpu_info
 
+
 def merge_gpu_info(specs, gpu_info):
     for spec in specs:
         for gpu in gpu_info:
             if spec.get("id") == gpu.get("id") or spec.get("uuid") == gpu.get("uuid"):
                 spec.update(gpu)
     return specs
+
+
 @cuda_api_call
 def cuDriverGetVersion(version):
     return cuda.cuDriverGetVersion(version)
+
 
 def get_pcie_info(i):
     try:
@@ -289,7 +297,8 @@ def get_pcie_info(i):
         else:
             return None
     except Exception as e:
-        return None 
+        return None
+
 
 def get_ubuntu_version() -> str:
     try:
@@ -303,45 +312,47 @@ def get_ubuntu_version() -> str:
 def get_cpu_cores() -> int:
     try:
         # Đọc thông tin về số lõi CPU từ /proc/cpuinfo
-        with open('/proc/cpuinfo') as f:
+        with open("/proc/cpuinfo") as f:
             cpuinfo = f.read()
-            cores = cpuinfo.count('processor')  # Đếm số lõi
+            cores = cpuinfo.count("processor")  # Đếm số lõi
         return cores
     except Exception as e:
         print(f"Error getting CPU cores: {e}")
         return 0
 
+
 def get_total_cpu_cores() -> int:
     try:
         # Sử dụng lệnh lscpu để lấy tổng số lõi CPU
-        lscpu_output = subprocess.check_output(['lscpu']).decode('utf-8')
-        for line in lscpu_output.split('\n'):
+        lscpu_output = subprocess.check_output(["lscpu"]).decode("utf-8")
+        for line in lscpu_output.split("\n"):
             if "CPU(s):" in line:
                 return int(line.split()[1])
     except Exception as e:
         print(f"Error getting total CPU cores: {e}")
         return 0
 
+
 def get_used_cpu_cores() -> int:
     try:
         # Sử dụng lệnh top để lấy thông tin về CPU
-        top_output = subprocess.check_output(['top', '-bn1']).decode('utf-8')
-        
+        top_output = subprocess.check_output(["top", "-bn1"]).decode("utf-8")
+
         # Tìm kiếm dòng chứa thông tin về CPU
-        cpu_line = next(line for line in top_output.split('\n') if "Cpu(s)" in line)
-        
+        cpu_line = next(line for line in top_output.split("\n") if "Cpu(s)" in line)
+
         # Lấy phần trăm sử dụng CPU từ dòng CPU
         cpu_usage_match = re.search(r"(\d+\.\d+) id", cpu_line)
         if cpu_usage_match:
             cpu_idle = float(cpu_usage_match.group(1))
             cpu_usage_total = 100.0 - cpu_idle
-        
+
             # Lấy số lõi CPU vật lý trên hệ thống
             num_physical_cores = get_total_cpu_cores()
-        
+
             # Tính toán số lõi CPU đã sử dụng
             used_cpu_cores = round((cpu_usage_total / 100) * num_physical_cores)
-        
+
             return used_cpu_cores
         else:
             print("Error parsing CPU usage")
@@ -354,26 +365,22 @@ def get_used_cpu_cores() -> int:
 def get_ram_info() -> dict:
     try:
         # Sử dụng lệnh free để lấy thông tin RAM
-        free_output = subprocess.check_output(['free', '-m']).decode('utf-8')
-        lines = free_output.split('\n')
+        free_output = subprocess.check_output(["free", "-m"]).decode("utf-8")
+        lines = free_output.split("\n")
         mem_info = lines[1].split()
-        
+
         total_ram = int(mem_info[1])
         used_ram = int(mem_info[2])
         free_ram = int(mem_info[3])
-        
+
         return {
             "total_ram_mb": total_ram,
             "used_ram_mb": used_ram,
-            "free_ram_mb": free_ram
+            "free_ram_mb": free_ram,
         }
     except Exception as e:
         print(f"Error getting RAM info: {e}")
-        return {
-            "total_ram_mb": 0,
-            "used_ram_mb": 0,
-            "free_ram_mb": 0
-        }
+        return {"total_ram_mb": 0, "used_ram_mb": 0, "free_ram_mb": 0}
 
 
 def get_system_disk_info():
@@ -415,13 +422,14 @@ def get_all_disk_info():
                     "used": values[2],
                     "avail": values[3],
                     "use_percentage": values[4],
-                    "mounted_on": values[5]
+                    "mounted_on": values[5],
                 }
                 disk_info_list.append(disk_info)
             return disk_info_list
     except Exception as e:
         print(f"Error while getting disk info: {e}")
     return []
+
 
 # Main function
 def get_cuda_device_specs() -> List[Dict[str, Any]]:
@@ -447,15 +455,19 @@ def get_cuda_device_specs() -> List[Dict[str, Any]]:
     """
     # Initialize CUDA
     cuInit(0)
-    
+
     # Get CUDA version
     version = ctypes.c_int()
     cuDriverGetVersion(ctypes.byref(version))
     cuda_version = f"{version.value // 1000}.{(version.value % 1000) // 10}"
-    driver_version_raw = subprocess.check_output(["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"]).decode("utf-8").strip()
+    driver_version_raw = (
+        subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"]
+        )
+        .decode("utf-8")
+        .strip()
+    )
     driver_versions = driver_version_raw.split("\n")
-
-
 
     num_gpus = ctypes.c_int()
     cuDeviceGetCount(ctypes.byref(num_gpus))
@@ -464,21 +476,22 @@ def get_cuda_device_specs() -> List[Dict[str, Any]]:
     for i in range(num_gpus.value):
         pcie_info = get_pcie_info(i)
         driver_version = driver_versions[i].strip()
-     
-        spec = {
-                "id": i, 
-                "cuda_version": cuda_version,  
-                "driver_version": driver_version,
-                "pcie_link_gen_max": pcie_info["pcie_link_gen_max"] if pcie_info else None,
-                "pcie_link_width_max": pcie_info["pcie_link_width_max"] if pcie_info else None,
-                "ubuntu_version": get_ubuntu_version(),
-                "cpu_cores": get_cpu_cores(),
-                "used_cores": get_used_cpu_cores(),
-                "ram_info": get_ram_info(),
-                "system_disk": get_system_disk_info(),
-                "all_disk_info": get_all_disk_info()
 
-            } 
+        spec = {
+            "id": i,
+            "cuda_version": cuda_version,
+            "driver_version": driver_version,
+            "pcie_link_gen_max": pcie_info["pcie_link_gen_max"] if pcie_info else None,
+            "pcie_link_width_max": (
+                pcie_info["pcie_link_width_max"] if pcie_info else None
+            ),
+            "ubuntu_version": get_ubuntu_version(),
+            "cpu_cores": get_cpu_cores(),
+            "used_cores": get_used_cpu_cores(),
+            "ram_info": get_ram_info(),
+            "system_disk": get_system_disk_info(),
+            "all_disk_info": get_all_disk_info(),
+        }
         device = ctypes.c_int()
         cuDeviceGet(ctypes.byref(device), i)
 
@@ -526,11 +539,13 @@ def get_cuda_device_specs() -> List[Dict[str, Any]]:
         cuDeviceGetAttribute(
             ctypes.byref(memory_clockrate),
             CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE,
-            device
+            device,
         )
 
         spec["mem_bandwidth_gb_per_s"] = get_bandwidth(
-            memory_clockrate.value, memory_bus_width, DATA_RATE[SEMVER_TO_ARCH[compute_capability]]
+            memory_clockrate.value,
+            memory_bus_width,
+            DATA_RATE[SEMVER_TO_ARCH[compute_capability]],
         )
 
         context = ctypes.c_void_p()
@@ -557,6 +572,7 @@ def get_cuda_device_specs() -> List[Dict[str, Any]]:
 
         device_specs.append(spec)
     return device_specs
+
 
 if __name__ == "__main__":
     gpu_info = get_gpu_info_from_nvidia_smi()

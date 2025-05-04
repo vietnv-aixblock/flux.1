@@ -5,19 +5,23 @@ import bisect
 import math
 import random
 from typing import Any, Dict, List, Mapping, Optional, Union
-from diffusers import UNet2DConditionModel
+
 import numpy as np
+import torch
+from diffusers import UNet2DConditionModel
+from library.device_utils import get_preferred_device, init_ipex
 from tqdm import tqdm
 from transformers import CLIPTextModel
 
-import torch
-from library.device_utils import init_ipex, get_preferred_device
 init_ipex()
 
 from library.utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 def make_unet_conversion_map() -> Dict[str, str]:
     unet_conversion_map_layer = []
@@ -34,7 +38,9 @@ def make_unet_conversion_map() -> Dict[str, str]:
                 # no attention layers in down_blocks.3
                 hf_down_atn_prefix = f"down_blocks.{i}.attentions.{j}."
                 sd_down_atn_prefix = f"input_blocks.{3*i + j + 1}.1."
-                unet_conversion_map_layer.append((sd_down_atn_prefix, hf_down_atn_prefix))
+                unet_conversion_map_layer.append(
+                    (sd_down_atn_prefix, hf_down_atn_prefix)
+                )
 
         for j in range(3):
             # loop over resnets/attentions for upblocks
@@ -52,7 +58,9 @@ def make_unet_conversion_map() -> Dict[str, str]:
             # no downsample in down_blocks.3
             hf_downsample_prefix = f"down_blocks.{i}.downsamplers.0.conv."
             sd_downsample_prefix = f"input_blocks.{3*(i+1)}.0.op."
-            unet_conversion_map_layer.append((sd_downsample_prefix, hf_downsample_prefix))
+            unet_conversion_map_layer.append(
+                (sd_downsample_prefix, hf_downsample_prefix)
+            )
 
             # no upsample in up_blocks.3
             hf_upsample_prefix = f"up_blocks.{i}.upsamplers.0."
@@ -100,7 +108,10 @@ def make_unet_conversion_map() -> Dict[str, str]:
     unet_conversion_map.append(("out.0.", "conv_norm_out."))
     unet_conversion_map.append(("out.2.", "conv_out."))
 
-    sd_hf_conversion_map = {sd.replace(".", "_")[:-1]: hf.replace(".", "_")[:-1] for sd, hf in unet_conversion_map}
+    sd_hf_conversion_map = {
+        sd.replace(".", "_")[:-1]: hf.replace(".", "_")[:-1]
+        for sd, hf in unet_conversion_map
+    }
     return sd_hf_conversion_map
 
 
@@ -124,7 +135,10 @@ class LoRAModule(torch.nn.Module):
         super().__init__()
         self.lora_name = lora_name
 
-        if org_module.__class__.__name__ == "Conv2d" or org_module.__class__.__name__ == "LoRACompatibleConv":
+        if (
+            org_module.__class__.__name__ == "Conv2d"
+            or org_module.__class__.__name__ == "LoRACompatibleConv"
+        ):
             in_dim = org_module.in_channels
             out_dim = org_module.out_channels
         else:
@@ -133,12 +147,19 @@ class LoRAModule(torch.nn.Module):
 
         self.lora_dim = lora_dim
 
-        if org_module.__class__.__name__ == "Conv2d" or org_module.__class__.__name__ == "LoRACompatibleConv":
+        if (
+            org_module.__class__.__name__ == "Conv2d"
+            or org_module.__class__.__name__ == "LoRACompatibleConv"
+        ):
             kernel_size = org_module.kernel_size
             stride = org_module.stride
             padding = org_module.padding
-            self.lora_down = torch.nn.Conv2d(in_dim, self.lora_dim, kernel_size, stride, padding, bias=False)
-            self.lora_up = torch.nn.Conv2d(self.lora_dim, out_dim, (1, 1), (1, 1), bias=False)
+            self.lora_down = torch.nn.Conv2d(
+                in_dim, self.lora_dim, kernel_size, stride, padding, bias=False
+            )
+            self.lora_up = torch.nn.Conv2d(
+                self.lora_dim, out_dim, (1, 1), (1, 1), bias=False
+            )
         else:
             self.lora_down = torch.nn.Linear(in_dim, self.lora_dim, bias=False)
             self.lora_up = torch.nn.Linear(self.lora_dim, out_dim, bias=False)
@@ -147,7 +168,9 @@ class LoRAModule(torch.nn.Module):
             alpha = alpha.detach().float().numpy()  # without casting, bf16 causes error
         alpha = self.lora_dim if alpha is None or alpha == 0 else alpha
         self.scale = alpha / self.lora_dim
-        self.register_buffer("alpha", torch.tensor(alpha))  # 勾配計算に含めない / not included in gradient calculation
+        self.register_buffer(
+            "alpha", torch.tensor(alpha)
+        )  # 勾配計算に含めない / not included in gradient calculation
 
         # same as microsoft's
         torch.nn.init.kaiming_uniform_(self.lora_down.weight, a=math.sqrt(5))
@@ -177,7 +200,10 @@ class LoRAModule(torch.nn.Module):
     def forward(self, x, scale=1.0):
         if not self.enabled:
             return self.org_forward(x)
-        return self.org_forward(x) + self.lora_up(self.lora_down(x)) * self.multiplier * self.scale
+        return (
+            self.org_forward(x)
+            + self.lora_up(self.lora_down(x)) * self.multiplier * self.scale
+        )
 
     def set_network(self, network):
         self.network = network
@@ -227,12 +253,16 @@ class LoRAModule(torch.nn.Module):
             # conv2d 1x1
             weight = (
                 self.multiplier
-                * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)).unsqueeze(2).unsqueeze(3)
+                * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2))
+                .unsqueeze(2)
+                .unsqueeze(3)
                 * self.scale
             )
         else:
             # conv2d 3x3
-            conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
+            conved = torch.nn.functional.conv2d(
+                down_weight.permute(1, 0, 2, 3), up_weight
+            ).permute(1, 0, 2, 3)
             weight = self.multiplier * conved * self.scale
 
         return weight
@@ -240,7 +270,10 @@ class LoRAModule(torch.nn.Module):
 
 # Create network from weights for inference, weights are not loaded here
 def create_network_from_weights(
-    text_encoder: Union[CLIPTextModel, List[CLIPTextModel]], unet: UNet2DConditionModel, weights_sd: Dict, multiplier: float = 1.0
+    text_encoder: Union[CLIPTextModel, List[CLIPTextModel]],
+    unet: UNet2DConditionModel,
+    weights_sd: Dict,
+    multiplier: float = 1.0,
 ):
     # get dim/alpha mapping
     modules_dim = {}
@@ -262,14 +295,26 @@ def create_network_from_weights(
         if key not in modules_alpha:
             modules_alpha[key] = modules_dim[key]
 
-    return LoRANetwork(text_encoder, unet, multiplier=multiplier, modules_dim=modules_dim, modules_alpha=modules_alpha)
+    return LoRANetwork(
+        text_encoder,
+        unet,
+        multiplier=multiplier,
+        modules_dim=modules_dim,
+        modules_alpha=modules_alpha,
+    )
 
 
 def merge_lora_weights(pipe, weights_sd: Dict, multiplier: float = 1.0):
-    text_encoders = [pipe.text_encoder, pipe.text_encoder_2] if hasattr(pipe, "text_encoder_2") else [pipe.text_encoder]
+    text_encoders = (
+        [pipe.text_encoder, pipe.text_encoder_2]
+        if hasattr(pipe, "text_encoder_2")
+        else [pipe.text_encoder]
+    )
     unet = pipe.unet
 
-    lora_network = create_network_from_weights(text_encoders, unet, weights_sd, multiplier=multiplier)
+    lora_network = create_network_from_weights(
+        text_encoders, unet, weights_sd, multiplier=multiplier
+    )
     lora_network.load_state_dict(weights_sd)
     lora_network.merge_to(multiplier=multiplier)
 
@@ -277,7 +322,11 @@ def merge_lora_weights(pipe, weights_sd: Dict, multiplier: float = 1.0):
 # block weightや学習に対応しない簡易版 / simple version without block weight and training
 class LoRANetwork(torch.nn.Module):
     UNET_TARGET_REPLACE_MODULE = ["Transformer2DModel"]
-    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
+    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = [
+        "ResnetBlock2D",
+        "Downsample2D",
+        "Upsample2D",
+    ]
     TEXT_ENCODER_TARGET_REPLACE_MODULE = ["CLIPAttention", "CLIPMLP"]
     LORA_PREFIX_UNET = "lora_unet"
     LORA_PREFIX_TEXT_ENCODER = "lora_te"
@@ -303,7 +352,9 @@ class LoRANetwork(torch.nn.Module):
         # convert SDXL Stability AI's U-Net modules to Diffusers
         converted = self.convert_unet_modules(modules_dim, modules_alpha)
         if converted:
-            logger.info(f"converted {converted} Stability AI's U-Net LoRA modules to Diffusers (SDXL)")
+            logger.info(
+                f"converted {converted} Stability AI's U-Net LoRA modules to Diffusers (SDXL)"
+            )
 
         # create module instances
         def create_modules(
@@ -318,7 +369,11 @@ class LoRANetwork(torch.nn.Module):
                 else (
                     self.LORA_PREFIX_TEXT_ENCODER
                     if text_encoder_idx is None
-                    else (self.LORA_PREFIX_TEXT_ENCODER1 if text_encoder_idx == 1 else self.LORA_PREFIX_TEXT_ENCODER2)
+                    else (
+                        self.LORA_PREFIX_TEXT_ENCODER1
+                        if text_encoder_idx == 1
+                        else self.LORA_PREFIX_TEXT_ENCODER2
+                    )
                 )
             )
             loras = []
@@ -327,10 +382,12 @@ class LoRANetwork(torch.nn.Module):
                 if module.__class__.__name__ in target_replace_modules:
                     for child_name, child_module in module.named_modules():
                         is_linear = (
-                            child_module.__class__.__name__ == "Linear" or child_module.__class__.__name__ == "LoRACompatibleLinear"
+                            child_module.__class__.__name__ == "Linear"
+                            or child_module.__class__.__name__ == "LoRACompatibleLinear"
                         )
                         is_conv2d = (
-                            child_module.__class__.__name__ == "Conv2d" or child_module.__class__.__name__ == "LoRACompatibleConv"
+                            child_module.__class__.__name__ == "Conv2d"
+                            or child_module.__class__.__name__ == "LoRACompatibleConv"
                         )
 
                         if is_linear or is_conv2d:
@@ -366,28 +423,44 @@ class LoRANetwork(torch.nn.Module):
             else:
                 index = None
 
-            text_encoder_loras, skipped = create_modules(False, index, text_encoder, LoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE)
+            text_encoder_loras, skipped = create_modules(
+                False,
+                index,
+                text_encoder,
+                LoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE,
+            )
             self.text_encoder_loras.extend(text_encoder_loras)
             skipped_te += skipped
-        logger.info(f"create LoRA for Text Encoder: {len(self.text_encoder_loras)} modules.")
+        logger.info(
+            f"create LoRA for Text Encoder: {len(self.text_encoder_loras)} modules."
+        )
         if len(skipped_te) > 0:
-            logger.warning(f"skipped {len(skipped_te)} modules because of missing weight for text encoder.")
+            logger.warning(
+                f"skipped {len(skipped_te)} modules because of missing weight for text encoder."
+            )
 
         # extend U-Net target modules to include Conv2d 3x3
-        target_modules = LoRANetwork.UNET_TARGET_REPLACE_MODULE + LoRANetwork.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+        target_modules = (
+            LoRANetwork.UNET_TARGET_REPLACE_MODULE
+            + LoRANetwork.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+        )
 
         self.unet_loras: List[LoRAModule]
         self.unet_loras, skipped_un = create_modules(True, None, unet, target_modules)
         logger.info(f"create LoRA for U-Net: {len(self.unet_loras)} modules.")
         if len(skipped_un) > 0:
-            logger.warning(f"skipped {len(skipped_un)} modules because of missing weight for U-Net.")
+            logger.warning(
+                f"skipped {len(skipped_un)} modules because of missing weight for U-Net."
+            )
 
         # assertion
         names = set()
         for lora in self.text_encoder_loras + self.unet_loras:
             names.add(lora.lora_name)
         for lora_name in modules_dim.keys():
-            assert lora_name in names, f"{lora_name} is not found in created LoRA modules."
+            assert (
+                lora_name in names
+            ), f"{lora_name} is not found in created LoRA modules."
 
         # make to work load_state_dict
         for lora in self.text_encoder_loras + self.unet_loras:
@@ -478,19 +551,28 @@ class LoRANetwork(torch.nn.Module):
 
 if __name__ == "__main__":
     # sample code to use LoRANetwork
-    import os
     import argparse
-    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
+    import os
+
     import torch
+    from diffusers import StableDiffusionPipeline, StableDiffusionXLPipeline
 
     device = get_preferred_device()
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_id", type=str, default=None, help="model id for huggingface")
-    parser.add_argument("--lora_weights", type=str, default=None, help="path to LoRA weights")
+    parser.add_argument(
+        "--model_id", type=str, default=None, help="model id for huggingface"
+    )
+    parser.add_argument(
+        "--lora_weights", type=str, default=None, help="path to LoRA weights"
+    )
     parser.add_argument("--sdxl", action="store_true", help="use SDXL model")
-    parser.add_argument("--prompt", type=str, default="A photo of cat", help="prompt text")
-    parser.add_argument("--negative_prompt", type=str, default="", help="negative prompt text")
+    parser.add_argument(
+        "--prompt", type=str, default="A photo of cat", help="prompt text"
+    )
+    parser.add_argument(
+        "--negative_prompt", type=str, default="", help="negative prompt text"
+    )
     parser.add_argument("--seed", type=int, default=0, help="random seed")
     args = parser.parse_args()
 
@@ -501,13 +583,19 @@ if __name__ == "__main__":
     pipe: Union[StableDiffusionPipeline, StableDiffusionXLPipeline]
     if args.sdxl:
         # use_safetensors=True does not work with 0.18.2
-        pipe = StableDiffusionXLPipeline.from_pretrained(args.model_id, variant="fp16", torch_dtype=torch.float16)
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            args.model_id, variant="fp16", torch_dtype=torch.float16
+        )
     else:
-        pipe = StableDiffusionPipeline.from_pretrained(args.model_id, variant="fp16", torch_dtype=torch.float16)
+        pipe = StableDiffusionPipeline.from_pretrained(
+            args.model_id, variant="fp16", torch_dtype=torch.float16
+        )
     pipe.to(device)
     pipe.set_use_memory_efficient_attention_xformers(True)
 
-    text_encoders = [pipe.text_encoder, pipe.text_encoder_2] if args.sdxl else [pipe.text_encoder]
+    text_encoders = (
+        [pipe.text_encoder, pipe.text_encoder_2] if args.sdxl else [pipe.text_encoder]
+    )
 
     # load LoRA weights
     logger.info(f"load LoRA weights from {args.lora_weights}")
@@ -520,12 +608,16 @@ if __name__ == "__main__":
 
     # create by LoRA weights and load weights
     logger.info(f"create LoRA network")
-    lora_network: LoRANetwork = create_network_from_weights(text_encoders, pipe.unet, lora_sd, multiplier=1.0)
+    lora_network: LoRANetwork = create_network_from_weights(
+        text_encoders, pipe.unet, lora_sd, multiplier=1.0
+    )
 
     logger.info(f"load LoRA network weights")
     lora_network.load_state_dict(lora_sd)
 
-    lora_network.to(device, dtype=pipe.unet.dtype)  # required to apply_to. merge_to works without this
+    lora_network.to(
+        device, dtype=pipe.unet.dtype
+    )  # required to apply_to. merge_to works without this
 
     # 必要があれば、元のモデルの重みをバックアップしておく
     # back-up unet/text encoder weights if necessary

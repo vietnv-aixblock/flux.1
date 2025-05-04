@@ -1,11 +1,12 @@
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import List
-from tqdm import tqdm
+
 import library.train_util as train_util
-import os
 from library.utils import setup_logging
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -19,7 +20,9 @@ def main(args):
     ), "recursive requires full_path / recursiveはfull_pathと同時に指定してください"
 
     train_data_dir_path = Path(args.train_data_dir)
-    image_paths: List[Path] = train_util.glob_images_pathlib(train_data_dir_path, args.recursive)
+    image_paths: List[Path] = train_util.glob_images_pathlib(
+        train_data_dir_path, args.recursive
+    )
     logger.info(f"found {len(image_paths)} images.")
 
     if args.in_json is None and Path(args.out_json).is_file():
@@ -28,9 +31,13 @@ def main(args):
     if args.in_json is not None:
         logger.info(f"loading existing metadata: {args.in_json}")
         metadata = json.loads(Path(args.in_json).read_text(encoding="utf-8"))
-        logger.warning("tags data for existing images will be overwritten / 既存の画像のタグは上書きされます")
+        logger.warning(
+            "tags data for existing images will be overwritten / 既存の画像のタグは上書きされます"
+        )
     else:
-        logger.info("new metadata will be created / 新しいメタデータファイルが作成されます")
+        logger.info(
+            "new metadata will be created / 新しいメタデータファイルが作成されます"
+        )
         metadata = {}
 
     logger.info("merge tags to metadata json.")
@@ -58,8 +65,16 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
-    parser.add_argument("out_json", type=str, help="metadata file to output / メタデータファイル書き出し先")
+    parser.add_argument(
+        "train_data_dir",
+        type=str,
+        help="directory for train images / 学習画像データのディレクトリ",
+    )
+    parser.add_argument(
+        "out_json",
+        type=str,
+        help="metadata file to output / メタデータファイル書き出し先",
+    )
     parser.add_argument(
         "--in_json",
         type=str,

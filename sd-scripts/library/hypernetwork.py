@@ -4,7 +4,7 @@ from diffusers.models.attention_processor import (
     Attention,
     AttnProcessor2_0,
     SlicedAttnProcessor,
-    XFormersAttnProcessor
+    XFormersAttnProcessor,
 )
 
 try:
@@ -16,9 +16,7 @@ except:
 loaded_networks = []
 
 
-def apply_single_hypernetwork(
-    hypernetwork, hidden_states, encoder_hidden_states
-):
+def apply_single_hypernetwork(hypernetwork, hidden_states, encoder_hidden_states):
     context_k, context_v = hypernetwork.forward(hidden_states, encoder_hidden_states)
     return context_k, context_v
 
@@ -33,7 +31,6 @@ def apply_hypernetworks(context_k, context_v, layer=None):
     context_v = context_v.to(dtype=context_k.dtype)
 
     return context_k, context_v
-
 
 
 def xformers_forward(

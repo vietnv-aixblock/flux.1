@@ -5,15 +5,19 @@
 import argparse
 import math
 import os
-import torch
-from safetensors.torch import load_file, save_file, safe_open
-from tqdm import tqdm
-from library import train_util, model_util
+
 import numpy as np
+import torch
+from library import model_util, train_util
 from library.utils import setup_logging
+from safetensors.torch import load_file, safe_open, save_file
+from tqdm import tqdm
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 def load_state_dict(file_name):
     if model_util.is_safetensors(file_name):
@@ -86,11 +90,15 @@ def split(args):
         else:
             new_metadata = metadata.copy()
 
-        new_metadata["ss_training_comment"] = f"split from DyLoRA, rank {original_rank} to {new_rank}; {comment}"
+        new_metadata["ss_training_comment"] = (
+            f"split from DyLoRA, rank {original_rank} to {new_rank}; {comment}"
+        )
         new_metadata["ss_network_dim"] = str(new_rank)
         # new_metadata["ss_network_alpha"] = str(new_alpha.float().numpy())
 
-        model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(state_dict, metadata)
+        model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+            state_dict, metadata
+        )
         metadata["sshs_model_hash"] = model_hash
         metadata["sshs_legacy_hash"] = legacy_hash
 
@@ -104,7 +112,12 @@ def split(args):
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--unit", type=int, default=None, help="size of rank to split into / rankを分割するサイズ")
+    parser.add_argument(
+        "--unit",
+        type=int,
+        default=None,
+        help="size of rank to split into / rankを分割するサイズ",
+    )
     parser.add_argument(
         "--save_to",
         type=str,

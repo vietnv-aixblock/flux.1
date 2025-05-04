@@ -1,16 +1,18 @@
-from typing import List, NamedTuple, Any
-import numpy as np
+from typing import Any, List, NamedTuple
+
 import cv2
+import library.model_util as model_util
+import numpy as np
 import torch
+from library.original_unet import SampleOutput, UNet2DConditionModel
+from library.utils import setup_logging
 from safetensors.torch import load_file
 
-from library.original_unet import UNet2DConditionModel, SampleOutput
-
-import library.model_util as model_util
-from library.utils import setup_logging
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 class ControlNetInfo(NamedTuple):
     unet: Any
@@ -35,7 +37,9 @@ class ControlNet(torch.nn.Module):
         self.control_model.add_module("zero_convs", zero_convs)
 
         middle_block_out = torch.nn.Conv2d(1280, 1280, 1)
-        self.control_model.add_module("middle_block_out", torch.nn.ModuleList([middle_block_out]))
+        self.control_model.add_module(
+            "middle_block_out", torch.nn.ModuleList([middle_block_out])
+        )
 
         dims = [16, 16, 32, 32, 96, 96, 256, 320]
         strides = [1, 1, 2, 1, 2, 1, 2, 1]
@@ -72,7 +76,9 @@ def load_control_net(v2, unet, model):
 
     # 元のU-Netに影響しないようにコピーする。またprefixが付いていないので付ける
     for key in list(ctrl_unet_sd_sd.keys()):
-        ctrl_unet_sd_sd["model.diffusion_model." + key] = ctrl_unet_sd_sd.pop(key).clone()
+        ctrl_unet_sd_sd["model.diffusion_model." + key] = ctrl_unet_sd_sd.pop(
+            key
+        ).clone()
 
     zero_conv_sd = {}
     for key in list(ctrl_sd_sd.keys()):
@@ -82,12 +88,16 @@ def load_control_net(v2, unet, model):
                 zero_conv_sd[key] = ctrl_sd_sd[key]
                 continue
             if is_difference:  # Transfer Control
-                ctrl_unet_sd_sd[unet_key] += ctrl_sd_sd[key].to(device, dtype=unet.dtype)
+                ctrl_unet_sd_sd[unet_key] += ctrl_sd_sd[key].to(
+                    device, dtype=unet.dtype
+                )
             else:
                 ctrl_unet_sd_sd[unet_key] = ctrl_sd_sd[key].to(device, dtype=unet.dtype)
 
     unet_config = model_util.create_unet_diffusers_config(v2)
-    ctrl_unet_du_sd = model_util.convert_ldm_unet_checkpoint(v2, ctrl_unet_sd_sd, unet_config)  # DiffUsers版ControlNetのstate dict
+    ctrl_unet_du_sd = model_util.convert_ldm_unet_checkpoint(
+        v2, ctrl_unet_sd_sd, unet_config
+    )  # DiffUsers版ControlNetのstate dict
 
     # ControlNetのU-Netを作成する
     ctrl_unet = UNet2DConditionModel(**unet_config)
@@ -133,7 +143,9 @@ def preprocess_ctrl_net_hint_image(image):
     return image  # 0 to 1
 
 
-def get_guided_hints(control_nets: List[ControlNetInfo], num_latent_input, b_size, hints):
+def get_guided_hints(
+    control_nets: List[ControlNetInfo], num_latent_input, b_size, hints
+):
     guided_hints = []
     for i, cnet_info in enumerate(control_nets):
         # hintは 1枚目の画像のcnet1, 1枚目の画像のcnet2, 1枚目の画像のcnet3, 2枚目の画像のcnet1, 2枚目の画像のcnet2 ... と並んでいること
@@ -189,18 +201,36 @@ def call_unet_and_control_net(
         org_dtype = guided_hint.dtype
         if org_dtype == torch.bfloat16:
             guided_hint = guided_hint.to(torch.float32)
-        guided_hint = torch.nn.functional.interpolate(guided_hint, size=sample.shape[-2:], mode="bicubic")
+        guided_hint = torch.nn.functional.interpolate(
+            guided_hint, size=sample.shape[-2:], mode="bicubic"
+        )
         if org_dtype == torch.bfloat16:
             guided_hint = guided_hint.to(org_dtype)
 
     guided_hint = guided_hint.repeat((num_latent_input, 1, 1, 1))
     outs = unet_forward(
-        True, cnet_info.net, cnet_info.unet, guided_hint, None, sample, timestep, encoder_hidden_states_for_control_net
+        True,
+        cnet_info.net,
+        cnet_info.unet,
+        guided_hint,
+        None,
+        sample,
+        timestep,
+        encoder_hidden_states_for_control_net,
     )
     outs = [o * cnet_info.weight for o in outs]
 
     # U-Net
-    return unet_forward(False, cnet_info.net, original_unet, None, outs, sample, timestep, encoder_hidden_states)
+    return unet_forward(
+        False,
+        cnet_info.net,
+        original_unet,
+        None,
+        outs,
+        sample,
+        timestep,
+        encoder_hidden_states,
+    )
 
 
 """
@@ -283,7 +313,9 @@ def unet_forward(
     sample = unet.conv_in(sample)
     if is_control_net:
         sample += guided_hint
-        outs.append(control_net.control_model.zero_convs[zc_idx][0](sample))  # , emb, encoder_hidden_states))
+        outs.append(
+            control_net.control_model.zero_convs[zc_idx][0](sample)
+        )  # , emb, encoder_hidden_states))
         zc_idx += 1
 
     # 3. down
@@ -299,7 +331,9 @@ def unet_forward(
             sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
         if is_control_net:
             for rs in res_samples:
-                outs.append(control_net.control_model.zero_convs[zc_idx][0](rs))  # , emb, encoder_hidden_states))
+                outs.append(
+                    control_net.control_model.zero_convs[zc_idx][0](rs)
+                )  # , emb, encoder_hidden_states))
                 zc_idx += 1
 
         down_block_res_samples += res_samples
@@ -343,7 +377,10 @@ def unet_forward(
             )
         else:
             sample = upsample_block(
-                hidden_states=sample, temb=emb, res_hidden_states_tuple=res_samples, upsample_size=upsample_size
+                hidden_states=sample,
+                temb=emb,
+                res_hidden_states_tuple=res_samples,
+                upsample_size=upsample_size,
             )
     # 6. post-process
     sample = unet.conv_norm_out(sample)

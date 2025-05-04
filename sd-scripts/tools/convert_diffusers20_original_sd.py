@@ -2,14 +2,17 @@
 
 import argparse
 import os
-import torch
-from diffusers import StableDiffusionPipeline
 
 import library.model_util as model_util
+import torch
+from diffusers import StableDiffusionPipeline
 from library.utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 def convert(args):
     # 引数を確認する
@@ -26,23 +29,37 @@ def convert(args):
     is_load_ckpt = os.path.isfile(args.model_to_load)
     is_save_ckpt = len(os.path.splitext(args.model_to_save)[1]) > 0
 
-    assert not is_load_ckpt or args.v1 != args.v2, "v1 or v2 is required to load checkpoint / checkpointの読み込みにはv1/v2指定が必要です"
+    assert (
+        not is_load_ckpt or args.v1 != args.v2
+    ), "v1 or v2 is required to load checkpoint / checkpointの読み込みにはv1/v2指定が必要です"
     # assert (
     #     is_save_ckpt or args.reference_model is not None
     # ), f"reference model is required to save as Diffusers / Diffusers形式での保存には参照モデルが必要です"
 
     # モデルを読み込む
-    msg = "checkpoint" if is_load_ckpt else ("Diffusers" + (" as fp16" if args.fp16 else ""))
+    msg = (
+        "checkpoint"
+        if is_load_ckpt
+        else ("Diffusers" + (" as fp16" if args.fp16 else ""))
+    )
     logger.info(f"loading {msg}: {args.model_to_load}")
 
     if is_load_ckpt:
         v2_model = args.v2
-        text_encoder, vae, unet = model_util.load_models_from_stable_diffusion_checkpoint(
-            v2_model, args.model_to_load, unet_use_linear_projection_in_v2=args.unet_use_linear_projection
+        text_encoder, vae, unet = (
+            model_util.load_models_from_stable_diffusion_checkpoint(
+                v2_model,
+                args.model_to_load,
+                unet_use_linear_projection_in_v2=args.unet_use_linear_projection,
+            )
         )
     else:
         pipe = StableDiffusionPipeline.from_pretrained(
-            args.model_to_load, torch_dtype=load_dtype, tokenizer=None, safety_checker=None, variant=args.variant
+            args.model_to_load,
+            torch_dtype=load_dtype,
+            tokenizer=None,
+            safety_checker=None,
+            variant=args.variant,
         )
         text_encoder = pipe.text_encoder
         vae = pipe.vae
@@ -51,12 +68,18 @@ def convert(args):
         if args.v1 == args.v2:
             # 自動判定する
             v2_model = unet.config.cross_attention_dim == 1024
-            logger.info("checking model version: model is " + ("v2" if v2_model else "v1"))
+            logger.info(
+                "checking model version: model is " + ("v2" if v2_model else "v1")
+            )
         else:
             v2_model = not args.v1
 
     # 変換して保存する
-    msg = ("checkpoint" + ("" if save_dtype is None else f" in {save_dtype}")) if is_save_ckpt else "Diffusers"
+    msg = (
+        ("checkpoint" + ("" if save_dtype is None else f" in {save_dtype}"))
+        if is_save_ckpt
+        else "Diffusers"
+    )
     logger.info(f"converting and saving as {msg}: {args.model_to_save}")
 
     if is_save_ckpt:
@@ -79,7 +102,13 @@ def convert(args):
             f"copy scheduler/tokenizer config from: {args.reference_model if args.reference_model is not None else 'default model'}"
         )
         model_util.save_diffusers_checkpoint(
-            v2_model, args.model_to_save, text_encoder, unet, args.reference_model, vae, args.use_safetensors
+            v2_model,
+            args.model_to_save,
+            text_encoder,
+            unet,
+            args.reference_model,
+            vae,
+            args.use_safetensors,
         )
         logger.info("model saved.")
 
@@ -87,10 +116,14 @@ def convert(args):
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--v1", action="store_true", help="load v1.x model (v1 or v2 is required to load checkpoint) / 1.xのモデルを読み込む"
+        "--v1",
+        action="store_true",
+        help="load v1.x model (v1 or v2 is required to load checkpoint) / 1.xのモデルを読み込む",
     )
     parser.add_argument(
-        "--v2", action="store_true", help="load v2.0 model (v1 or v2 is required to load checkpoint) / 2.0のモデルを読み込む"
+        "--v2",
+        action="store_true",
+        help="load v2.0 model (v1 or v2 is required to load checkpoint) / 2.0のモデルを読み込む",
     )
     parser.add_argument(
         "--unet_use_linear_projection",
@@ -102,9 +135,15 @@ def setup_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="load as fp16 (Diffusers only) and save as fp16 (checkpoint only) / fp16形式で読み込み（Diffusers形式のみ対応）、保存する（checkpointのみ対応）",
     )
-    parser.add_argument("--bf16", action="store_true", help="save as bf16 (checkpoint only) / bf16形式で保存する（checkpointのみ対応）")
     parser.add_argument(
-        "--float", action="store_true", help="save as float (checkpoint only) / float(float32)形式で保存する（checkpointのみ対応）"
+        "--bf16",
+        action="store_true",
+        help="save as bf16 (checkpoint only) / bf16形式で保存する（checkpointのみ対応）",
+    )
+    parser.add_argument(
+        "--float",
+        action="store_true",
+        help="save as float (checkpoint only) / float(float32)形式で保存する（checkpointのみ対応）",
     )
     parser.add_argument(
         "--save_precision_as",
@@ -113,9 +152,17 @@ def setup_parser() -> argparse.ArgumentParser:
         choices=["fp16", "bf16", "float"],
         help="save precision, do not specify with --fp16/--bf16/--float / 保存する精度、--fp16/--bf16/--floatと併用しないでください",
     )
-    parser.add_argument("--epoch", type=int, default=0, help="epoch to write to checkpoint / checkpointに記録するepoch数の値")
     parser.add_argument(
-        "--global_step", type=int, default=0, help="global_step to write to checkpoint / checkpointに記録するglobal_stepの値"
+        "--epoch",
+        type=int,
+        default=0,
+        help="epoch to write to checkpoint / checkpointに記録するepoch数の値",
+    )
+    parser.add_argument(
+        "--global_step",
+        type=int,
+        default=0,
+        help="global_step to write to checkpoint / checkpointに記録するglobal_stepの値",
     )
     parser.add_argument(
         "--metadata",

@@ -28,7 +28,7 @@ from pathlib import Path
 
 
 def count_files_in_directory(output_dir):
-    return len(list(Path(output_dir).rglob('*.*')))
+    return len(list(Path(output_dir).rglob("*.*")))
 
 
 def upload_checkpoint(project, version, output_dir):
@@ -40,29 +40,44 @@ def upload_checkpoint(project, version, output_dir):
             relative_path = os.path.relpath(file_path, output_dir)
             folder_name = os.path.dirname(relative_path)
             if index == total_file - 1:
-                project.upload_checkpoint(checkpoint=file_path, version=version, path_file=folder_name, send_mail=True)
+                project.upload_checkpoint(
+                    checkpoint=file_path,
+                    version=version,
+                    path_file=folder_name,
+                    send_mail=True,
+                )
                 index += 1
             else:
-                project.upload_checkpoint(checkpoint=file_path, version=version, path_file=folder_name)
+                project.upload_checkpoint(
+                    checkpoint=file_path, version=version, path_file=folder_name
+                )
                 index += 1
+
 
 # only upload "checkpoint-x" folders when stored together with the diffusers output
 def upload_checkpoint_mixed_folder(project, version, output_dir):
     chkpts = [d for d in os.listdir(output_dir) if d.startswith("checkpoint")]
     chkpt_dirs = [os.path.join(output_dir, chkpt) for chkpt in chkpts]
 
-    total_file = sum([count_files_in_directory(chkpt_dir)for chkpt_dir in chkpt_dirs])
-    index=0
+    total_file = sum([count_files_in_directory(chkpt_dir) for chkpt_dir in chkpt_dirs])
+    index = 0
 
     for chkpt_dir in chkpt_dirs:
-      for root, dirs, files in os.walk(chkpt_dir):
-        for idx, file in enumerate(files):
-            file_path = os.path.join(root, file)
-            relative_path = os.path.relpath(file_path, output_dir)
-            folder_name = os.path.dirname(relative_path)
-            if index == total_file - 1:
-                project.upload_checkpoint(checkpoint=file_path, version=version, path_file=folder_name, send_mail=True)
-                index += 1
-            else:
-                project.upload_checkpoint(checkpoint=file_path, version=version, path_file=folder_name)
-                index += 1
+        for root, dirs, files in os.walk(chkpt_dir):
+            for idx, file in enumerate(files):
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, output_dir)
+                folder_name = os.path.dirname(relative_path)
+                if index == total_file - 1:
+                    project.upload_checkpoint(
+                        checkpoint=file_path,
+                        version=version,
+                        path_file=folder_name,
+                        send_mail=True,
+                    )
+                    index += 1
+                else:
+                    project.upload_checkpoint(
+                        checkpoint=file_path, version=version, path_file=folder_name
+                    )
+                    index += 1

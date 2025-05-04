@@ -2,15 +2,16 @@
 
 import math
 import os
+import re
 from typing import Dict, List, Optional, Tuple, Type, Union
-from diffusers import AutoencoderKL
+
 import einops
-from transformers import CLIPTextModel
 import numpy as np
 import torch
 import torch.nn.functional as F
-import re
+from diffusers import AutoencoderKL
 from library.utils import setup_logging
+from transformers import CLIPTextModel
 
 setup_logging()
 import logging
@@ -55,19 +56,31 @@ class OFTModule(torch.nn.Module):
         if split_dims is None:
             split_dims = [self.out_dim]
         else:
-            assert sum(split_dims) == self.out_dim, "sum of split_dims must be equal to out_dim"
+            assert (
+                sum(split_dims) == self.out_dim
+            ), "sum of split_dims must be equal to out_dim"
         self.split_dims = split_dims
 
         # assert all dim is divisible by num_blocks
         for split_dim in self.split_dims:
-            assert split_dim % self.num_blocks == 0, "split_dim must be divisible by num_blocks"
+            assert (
+                split_dim % self.num_blocks == 0
+            ), "split_dim must be divisible by num_blocks"
 
         self.constraint = [alpha * split_dim for split_dim in self.split_dims]
-        self.block_size = [split_dim // self.num_blocks for split_dim in self.split_dims]
+        self.block_size = [
+            split_dim // self.num_blocks for split_dim in self.split_dims
+        ]
         self.oft_blocks = torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.zeros(self.num_blocks, block_size, block_size)) for block_size in self.block_size]
+            [
+                torch.nn.Parameter(torch.zeros(self.num_blocks, block_size, block_size))
+                for block_size in self.block_size
+            ]
         )
-        self.I = [torch.eye(block_size).unsqueeze(0).repeat(self.num_blocks, 1, 1) for block_size in self.block_size]
+        self.I = [
+            torch.eye(block_size).unsqueeze(0).repeat(self.num_blocks, 1, 1)
+            for block_size in self.block_size
+        ]
 
         self.shape = org_module.weight.shape
         self.multiplier = multiplier
@@ -118,7 +131,9 @@ class OFTModule(torch.nn.Module):
             d2 += self.split_dims[i]
 
             W1 = W[d1:d2]
-            W_reshaped = einops.rearrange(W1, "(k n) m -> k n m", k=self.num_blocks, n=self.block_size[i])
+            W_reshaped = einops.rearrange(
+                W1, "(k n) m -> k n m", k=self.num_blocks, n=self.block_size[i]
+            )
             RW_1 = torch.einsum("k n m, k n p -> k m p", R[i], W_reshaped)
             RW_1 = einops.rearrange(RW_1, "k m p -> (k m) p")
 
@@ -167,7 +182,9 @@ class OFTInfModule(OFTModule):
             d2 += self.split_dims[i]
 
             W1 = W[d1:d2]
-            W_reshaped = einops.rearrange(W1, "(k n) m -> k n m", k=self.num_blocks, n=self.block_size[i])
+            W_reshaped = einops.rearrange(
+                W1, "(k n) m -> k n m", k=self.num_blocks, n=self.block_size[i]
+            )
             W1 = torch.einsum("k n m, k n p -> k m p", R[i], W_reshaped)
             W1 = einops.rearrange(W1, "k m p -> (k m) p")
 
@@ -227,7 +244,16 @@ def create_network(
 
 
 # Create network from weights for inference, weights are not loaded here (because can be merged)
-def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weights_sd=None, for_inference=False, **kwargs):
+def create_network_from_weights(
+    multiplier,
+    file,
+    vae,
+    text_encoder,
+    unet,
+    weights_sd=None,
+    for_inference=False,
+    **kwargs,
+):
     if weights_sd is None:
         if os.path.splitext(file)[1] == ".safetensors":
             from safetensors.torch import load_file, safe_open
@@ -320,7 +346,14 @@ class OFTNetwork(torch.nn.Module):
                             else:
                                 split_dims = None
 
-                            oft = module_class(oft_name, child_module, self.multiplier, dim, alpha, split_dims)
+                            oft = module_class(
+                                oft_name,
+                                child_module,
+                                self.multiplier,
+                                dim,
+                                alpha,
+                                split_dims,
+                            )
                             ofts.append(oft)
             return ofts
 
@@ -430,13 +463,15 @@ class OFTNetwork(torch.nn.Module):
                 state_dict[key] = v
 
         if os.path.splitext(file)[1] == ".safetensors":
-            from safetensors.torch import save_file
             from library import train_util
+            from safetensors.torch import save_file
 
             # Precalculate model hashes to save time on indexing
             if metadata is None:
                 metadata = {}
-            model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(state_dict, metadata)
+            model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+                state_dict, metadata
+            )
             metadata["sshs_model_hash"] = model_hash
             metadata["sshs_legacy_hash"] = legacy_hash
 

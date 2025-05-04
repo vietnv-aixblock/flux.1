@@ -1,14 +1,18 @@
-import os
 import glob
+import os
 from typing import Any, List, Optional, Tuple, Union
-import torch
+
 import numpy as np
-from transformers import CLIPTokenizer, T5TokenizerFast
-
+import torch
 from library import flux_utils, train_util
-from library.strategy_base import LatentsCachingStrategy, TextEncodingStrategy, TokenizeStrategy, TextEncoderOutputsCachingStrategy
-
+from library.strategy_base import (
+    LatentsCachingStrategy,
+    TextEncoderOutputsCachingStrategy,
+    TextEncodingStrategy,
+    TokenizeStrategy,
+)
 from library.utils import setup_logging
+from transformers import CLIPTokenizer, T5TokenizerFast
 
 setup_logging()
 import logging
@@ -21,16 +25,36 @@ T5_XXL_TOKENIZER_ID = "google/t5-v1_1-xxl"
 
 
 class FluxTokenizeStrategy(TokenizeStrategy):
-    def __init__(self, t5xxl_max_length: int = 512, tokenizer_cache_dir: Optional[str] = None) -> None:
+    def __init__(
+        self, t5xxl_max_length: int = 512, tokenizer_cache_dir: Optional[str] = None
+    ) -> None:
         self.t5xxl_max_length = t5xxl_max_length
-        self.clip_l = self._load_tokenizer(CLIPTokenizer, CLIP_L_TOKENIZER_ID, tokenizer_cache_dir=tokenizer_cache_dir)
-        self.t5xxl = self._load_tokenizer(T5TokenizerFast, T5_XXL_TOKENIZER_ID, tokenizer_cache_dir=tokenizer_cache_dir)
+        self.clip_l = self._load_tokenizer(
+            CLIPTokenizer, CLIP_L_TOKENIZER_ID, tokenizer_cache_dir=tokenizer_cache_dir
+        )
+        self.t5xxl = self._load_tokenizer(
+            T5TokenizerFast,
+            T5_XXL_TOKENIZER_ID,
+            tokenizer_cache_dir=tokenizer_cache_dir,
+        )
 
     def tokenize(self, text: Union[str, List[str]]) -> List[torch.Tensor]:
         text = [text] if isinstance(text, str) else text
 
-        l_tokens = self.clip_l(text, max_length=77, padding="max_length", truncation=True, return_tensors="pt")
-        t5_tokens = self.t5xxl(text, max_length=self.t5xxl_max_length, padding="max_length", truncation=True, return_tensors="pt")
+        l_tokens = self.clip_l(
+            text,
+            max_length=77,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
+        t5_tokens = self.t5xxl(
+            text,
+            max_length=self.t5xxl_max_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
 
         t5_attn_mask = t5_tokens["attention_mask"]
         l_tokens = l_tokens["input_ids"]
@@ -72,17 +96,31 @@ class FluxTextEncodingStrategy(TextEncodingStrategy):
         # t5xxl is None when using CLIP only
         if t5xxl is not None and t5_tokens is not None:
             # t5_out is [b, max length, 4096]
-            attention_mask = None if not apply_t5_attn_mask else t5_attn_mask.to(t5xxl.device)
-            t5_out, _ = t5xxl(t5_tokens.to(t5xxl.device), attention_mask, return_dict=False, output_hidden_states=True)
+            attention_mask = (
+                None if not apply_t5_attn_mask else t5_attn_mask.to(t5xxl.device)
+            )
+            t5_out, _ = t5xxl(
+                t5_tokens.to(t5xxl.device),
+                attention_mask,
+                return_dict=False,
+                output_hidden_states=True,
+            )
             # if zero_pad_t5_output:
             #     t5_out = t5_out * t5_attn_mask.to(t5_out.device).unsqueeze(-1)
-            txt_ids = torch.zeros(t5_out.shape[0], t5_out.shape[1], 3, device=t5_out.device)
+            txt_ids = torch.zeros(
+                t5_out.shape[0], t5_out.shape[1], 3, device=t5_out.device
+            )
         else:
             t5_out = None
             txt_ids = None
             t5_attn_mask = None  # caption may be dropped/shuffled, so t5_attn_mask should not be used to make sure the mask is same as the cached one
 
-        return [l_pooled, t5_out, txt_ids, t5_attn_mask]  # returns t5_attn_mask for attention mask in transformer
+        return [
+            l_pooled,
+            t5_out,
+            txt_ids,
+            t5_attn_mask,
+        ]  # returns t5_attn_mask for attention mask in transformer
 
 
 class FluxTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrategy):
@@ -96,13 +134,18 @@ class FluxTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrategy):
         is_partial: bool = False,
         apply_t5_attn_mask: bool = False,
     ) -> None:
-        super().__init__(cache_to_disk, batch_size, skip_disk_cache_validity_check, is_partial)
+        super().__init__(
+            cache_to_disk, batch_size, skip_disk_cache_validity_check, is_partial
+        )
         self.apply_t5_attn_mask = apply_t5_attn_mask
 
         self.warn_fp8_weights = False
 
     def get_outputs_npz_path(self, image_abs_path: str) -> str:
-        return os.path.splitext(image_abs_path)[0] + FluxTextEncoderOutputsCachingStrategy.FLUX_TEXT_ENCODER_OUTPUTS_NPZ_SUFFIX
+        return (
+            os.path.splitext(image_abs_path)[0]
+            + FluxTextEncoderOutputsCachingStrategy.FLUX_TEXT_ENCODER_OUTPUTS_NPZ_SUFFIX
+        )
 
     def is_disk_cached_outputs_expected(self, npz_path: str):
         if not self.cache_to_disk:
@@ -143,7 +186,11 @@ class FluxTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrategy):
         return [l_pooled, t5_out, txt_ids, t5_attn_mask]
 
     def cache_batch_outputs(
-        self, tokenize_strategy: TokenizeStrategy, models: List[Any], text_encoding_strategy: TextEncodingStrategy, infos: List
+        self,
+        tokenize_strategy: TokenizeStrategy,
+        models: List[Any],
+        text_encoding_strategy: TextEncodingStrategy,
+        infos: List,
     ):
         if not self.warn_fp8_weights:
             if flux_utils.get_t5xxl_actual_dtype(models[1]) == torch.float8_e4m3fn:
@@ -159,7 +206,9 @@ class FluxTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrategy):
         tokens_and_masks = tokenize_strategy.tokenize(captions)
         with torch.no_grad():
             # attn_mask is applied in text_encoding_strategy.encode_tokens if apply_t5_attn_mask is True
-            l_pooled, t5_out, txt_ids, _ = flux_text_encoding_strategy.encode_tokens(tokenize_strategy, models, tokens_and_masks)
+            l_pooled, t5_out, txt_ids, _ = flux_text_encoding_strategy.encode_tokens(
+                tokenize_strategy, models, tokens_and_masks
+            )
 
         if l_pooled.dtype == torch.bfloat16:
             l_pooled = l_pooled.float()
@@ -191,42 +240,81 @@ class FluxTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrategy):
                 )
             else:
                 # it's fine that attn mask is not None. it's overwritten before calling the model if necessary
-                info.text_encoder_outputs = (l_pooled_i, t5_out_i, txt_ids_i, t5_attn_mask_i)
+                info.text_encoder_outputs = (
+                    l_pooled_i,
+                    t5_out_i,
+                    txt_ids_i,
+                    t5_attn_mask_i,
+                )
 
 
 class FluxLatentsCachingStrategy(LatentsCachingStrategy):
     FLUX_LATENTS_NPZ_SUFFIX = "_flux.npz"
 
-    def __init__(self, cache_to_disk: bool, batch_size: int, skip_disk_cache_validity_check: bool) -> None:
+    def __init__(
+        self, cache_to_disk: bool, batch_size: int, skip_disk_cache_validity_check: bool
+    ) -> None:
         super().__init__(cache_to_disk, batch_size, skip_disk_cache_validity_check)
 
     @property
     def cache_suffix(self) -> str:
         return FluxLatentsCachingStrategy.FLUX_LATENTS_NPZ_SUFFIX
 
-    def get_latents_npz_path(self, absolute_path: str, image_size: Tuple[int, int]) -> str:
+    def get_latents_npz_path(
+        self, absolute_path: str, image_size: Tuple[int, int]
+    ) -> str:
         return (
             os.path.splitext(absolute_path)[0]
             + f"_{image_size[0]:04d}x{image_size[1]:04d}"
             + FluxLatentsCachingStrategy.FLUX_LATENTS_NPZ_SUFFIX
         )
 
-    def is_disk_cached_latents_expected(self, bucket_reso: Tuple[int, int], npz_path: str, flip_aug: bool, alpha_mask: bool):
-        return self._default_is_disk_cached_latents_expected(8, bucket_reso, npz_path, flip_aug, alpha_mask, multi_resolution=True)
+    def is_disk_cached_latents_expected(
+        self,
+        bucket_reso: Tuple[int, int],
+        npz_path: str,
+        flip_aug: bool,
+        alpha_mask: bool,
+    ):
+        return self._default_is_disk_cached_latents_expected(
+            8, bucket_reso, npz_path, flip_aug, alpha_mask, multi_resolution=True
+        )
 
     def load_latents_from_disk(
         self, npz_path: str, bucket_reso: Tuple[int, int]
-    ) -> Tuple[Optional[np.ndarray], Optional[List[int]], Optional[List[int]], Optional[np.ndarray], Optional[np.ndarray]]:
-        return self._default_load_latents_from_disk(8, npz_path, bucket_reso)  # support multi-resolution
+    ) -> Tuple[
+        Optional[np.ndarray],
+        Optional[List[int]],
+        Optional[List[int]],
+        Optional[np.ndarray],
+        Optional[np.ndarray],
+    ]:
+        return self._default_load_latents_from_disk(
+            8, npz_path, bucket_reso
+        )  # support multi-resolution
 
     # TODO remove circular dependency for ImageInfo
-    def cache_batch_latents(self, vae, image_infos: List, flip_aug: bool, alpha_mask: bool, random_crop: bool):
+    def cache_batch_latents(
+        self,
+        vae,
+        image_infos: List,
+        flip_aug: bool,
+        alpha_mask: bool,
+        random_crop: bool,
+    ):
         encode_by_vae = lambda img_tensor: vae.encode(img_tensor).to("cpu")
         vae_device = vae.device
         vae_dtype = vae.dtype
 
         self._default_cache_batch_latents(
-            encode_by_vae, vae_device, vae_dtype, image_infos, flip_aug, alpha_mask, random_crop, multi_resolution=True
+            encode_by_vae,
+            vae_device,
+            vae_dtype,
+            image_infos,
+            flip_aug,
+            alpha_mask,
+            random_crop,
+            multi_resolution=True,
         )
 
         if not train_util.HIGH_VRAM:
@@ -246,10 +334,18 @@ if __name__ == "__main__":
     print(t5_tokens)
 
     texts = ["hello world", "the quick brown fox jumps over the lazy dog"]
-    l_tokens_2 = strategy.clip_l(texts, max_length=77, padding="max_length", truncation=True, return_tensors="pt")
-    g_tokens_2 = strategy.clip_g(texts, max_length=77, padding="max_length", truncation=True, return_tensors="pt")
+    l_tokens_2 = strategy.clip_l(
+        texts, max_length=77, padding="max_length", truncation=True, return_tensors="pt"
+    )
+    g_tokens_2 = strategy.clip_g(
+        texts, max_length=77, padding="max_length", truncation=True, return_tensors="pt"
+    )
     t5_tokens_2 = strategy.t5xxl(
-        texts, max_length=strategy.t5xxl_max_length, padding="max_length", truncation=True, return_tensors="pt"
+        texts,
+        max_length=strategy.t5xxl_max_length,
+        padding="max_length",
+        truncation=True,
+        return_tensors="pt",
     )
     print(l_tokens_2)
     print(g_tokens_2)

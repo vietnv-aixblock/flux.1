@@ -19,17 +19,19 @@ from typing import Optional, Tuple, Union
 import numpy as np
 import torch
 import torch.nn as nn
-
-
 from diffusers.configuration_utils import ConfigMixin, register_to_config
+from diffusers.models.autoencoder_kl import AutoencoderKLOutput
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.unet_2d_blocks import UNetMidBlock2D, get_down_block, get_up_block
 from diffusers.models.vae import DecoderOutput, DiagonalGaussianDistribution
-from diffusers.models.autoencoder_kl import AutoencoderKLOutput
+
 from .utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 def slice_h(x, num_slices):
     # slice with pad 1 both sides: to eliminate side effect of padding of conv2d
@@ -42,7 +44,9 @@ def slice_h(x, num_slices):
             sliced.append(x[:, :, : size + 1, :])
         else:
             end = size * (i + 1) + 1
-            if x.shape[2] - end < 3:  # if the last slice is too small, use the rest of the tensor 最後が細すぎるとconv2dできないので全部使う
+            if (
+                x.shape[2] - end < 3
+            ):  # if the last slice is too small, use the rest of the tensor 最後が細すぎるとconv2dできないので全部使う
                 end = x.shape[2]
             sliced.append(x[:, :, size * i - 1 : end, :])
             if end >= x.shape[2]:
@@ -152,7 +156,9 @@ def resblock_forward(_self, num_slices, input_tensor, temb, **kwargs):
 
     # make shortcut
     if _self.conv_shortcut is not None:
-        sliced = list(torch.chunk(input_tensor, num_slices, dim=2))  # no padding in conv_shortcut パディングがないので普通にスライスする
+        sliced = list(
+            torch.chunk(input_tensor, num_slices, dim=2)
+        )  # no padding in conv_shortcut パディングがないので普通にスライスする
         del input_tensor
 
         for i in range(len(sliced)):
@@ -190,7 +196,9 @@ class SlicingEncoder(nn.Module):
         super().__init__()
         self.layers_per_block = layers_per_block
 
-        self.conv_in = torch.nn.Conv2d(in_channels, block_out_channels[0], kernel_size=3, stride=1, padding=1)
+        self.conv_in = torch.nn.Conv2d(
+            in_channels, block_out_channels[0], kernel_size=3, stride=1, padding=1
+        )
 
         self.mid_block = None
         self.down_blocks = nn.ModuleList([])
@@ -228,14 +236,20 @@ class SlicingEncoder(nn.Module):
             resnet_groups=norm_num_groups,
             temb_channels=None,
         )
-        self.mid_block.attentions[0].set_use_memory_efficient_attention_xformers(True)  # とりあえずDiffusersのxformersを使う
+        self.mid_block.attentions[0].set_use_memory_efficient_attention_xformers(
+            True
+        )  # とりあえずDiffusersのxformersを使う
 
         # out
-        self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[-1], num_groups=norm_num_groups, eps=1e-6)
+        self.conv_norm_out = nn.GroupNorm(
+            num_channels=block_out_channels[-1], num_groups=norm_num_groups, eps=1e-6
+        )
         self.conv_act = nn.SiLU()
 
         conv_out_channels = 2 * out_channels if double_z else out_channels
-        self.conv_out = nn.Conv2d(block_out_channels[-1], conv_out_channels, 3, padding=1)
+        self.conv_out = nn.Conv2d(
+            block_out_channels[-1], conv_out_channels, 3, padding=1
+        )
 
         # replace forward of ResBlocks
         def wrapper(func, module, num_slices):
@@ -245,7 +259,9 @@ class SlicingEncoder(nn.Module):
             return forward
 
         self.num_slices = num_slices
-        div = num_slices / (2 ** (len(self.down_blocks) - 1))  # 深い層はそこまで分割しなくていいので適宜減らす
+        div = num_slices / (
+            2 ** (len(self.down_blocks) - 1)
+        )  # 深い層はそこまで分割しなくていいので適宜減らす
         # logger.info(f"initial divisor: {div}")
         if div >= 2:
             div = int(div)
@@ -262,7 +278,9 @@ class SlicingEncoder(nn.Module):
                 if down_block.downsamplers is not None:
                     # logger.info("has downsample")
                     for downsample in down_block.downsamplers:
-                        downsample.forward = wrapper(self.downsample_forward, downsample, div * 2)
+                        downsample.forward = wrapper(
+                            self.downsample_forward, downsample, div * 2
+                        )
             div *= 2
 
     def forward(self, x):
@@ -317,7 +335,9 @@ class SlicingEncoder(nn.Module):
 
         hidden_states = hidden_states.to(cpu_device)
         pad = (0, 1, 0, 1)
-        hidden_states = torch.nn.functional.pad(hidden_states, pad, mode="constant", value=0)
+        hidden_states = torch.nn.functional.pad(
+            hidden_states, pad, mode="constant", value=0
+        )
 
         # slice with even number because of stride 2
         # strideが2なので偶数でスライスする
@@ -331,7 +351,9 @@ class SlicingEncoder(nn.Module):
                 sliced.append(hidden_states[:, :, : size + 1, :])
             else:
                 end = size * (i + 1) + 1
-                if hidden_states.shape[2] - end < 4:  # if the last slice is too small, use the rest of the tensor
+                if (
+                    hidden_states.shape[2] - end < 4
+                ):  # if the last slice is too small, use the rest of the tensor
                     end = hidden_states.shape[2]
                 sliced.append(hidden_states[:, :, size * i - 1 : end, :])
                 if end >= hidden_states.shape[2]:
@@ -372,7 +394,9 @@ class SlicingDecoder(nn.Module):
         super().__init__()
         self.layers_per_block = layers_per_block
 
-        self.conv_in = nn.Conv2d(in_channels, block_out_channels[-1], kernel_size=3, stride=1, padding=1)
+        self.conv_in = nn.Conv2d(
+            in_channels, block_out_channels[-1], kernel_size=3, stride=1, padding=1
+        )
 
         self.mid_block = None
         self.up_blocks = nn.ModuleList([])
@@ -388,7 +412,9 @@ class SlicingDecoder(nn.Module):
             resnet_groups=norm_num_groups,
             temb_channels=None,
         )
-        self.mid_block.attentions[0].set_use_memory_efficient_attention_xformers(True)  # とりあえずDiffusersのxformersを使う
+        self.mid_block.attentions[0].set_use_memory_efficient_attention_xformers(
+            True
+        )  # とりあえずDiffusersのxformersを使う
 
         # up
         reversed_block_out_channels = list(reversed(block_out_channels))
@@ -416,7 +442,9 @@ class SlicingDecoder(nn.Module):
             prev_output_channel = output_channel
 
         # out
-        self.conv_norm_out = nn.GroupNorm(num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6)
+        self.conv_norm_out = nn.GroupNorm(
+            num_channels=block_out_channels[0], num_groups=norm_num_groups, eps=1e-6
+        )
         self.conv_act = nn.SiLU()
         self.conv_out = nn.Conv2d(block_out_channels[0], out_channels, 3, padding=1)
 
@@ -445,7 +473,9 @@ class SlicingDecoder(nn.Module):
                 if up_block.upsamplers is not None:
                     # logger.info("has upsample")
                     for upsample in up_block.upsamplers:
-                        upsample.forward = wrapper(self.upsample_forward, upsample, div * 2)
+                        upsample.forward = wrapper(
+                            self.upsample_forward, upsample, div * 2
+                        )
             div *= 2
 
     def forward(self, z):
@@ -605,7 +635,9 @@ class SlicingAutoencoderKL(ModelMixin, ConfigMixin):
         self.post_quant_conv = torch.nn.Conv2d(latent_channels, latent_channels, 1)
         self.use_slicing = False
 
-    def encode(self, x: torch.FloatTensor, return_dict: bool = True) -> AutoencoderKLOutput:
+    def encode(
+        self, x: torch.FloatTensor, return_dict: bool = True
+    ) -> AutoencoderKLOutput:
         h = self.encoder(x)
         moments = self.quant_conv(h)
         posterior = DiagonalGaussianDistribution(moments)
@@ -615,7 +647,9 @@ class SlicingAutoencoderKL(ModelMixin, ConfigMixin):
 
         return AutoencoderKLOutput(latent_dist=posterior)
 
-    def _decode(self, z: torch.FloatTensor, return_dict: bool = True) -> Union[DecoderOutput, torch.FloatTensor]:
+    def _decode(
+        self, z: torch.FloatTensor, return_dict: bool = True
+    ) -> Union[DecoderOutput, torch.FloatTensor]:
         z = self.post_quant_conv(z)
         dec = self.decoder(z)
 
@@ -641,7 +675,9 @@ class SlicingAutoencoderKL(ModelMixin, ConfigMixin):
         """
         self.use_slicing = False
 
-    def decode(self, z: torch.FloatTensor, return_dict: bool = True) -> Union[DecoderOutput, torch.FloatTensor]:
+    def decode(
+        self, z: torch.FloatTensor, return_dict: bool = True
+    ) -> Union[DecoderOutput, torch.FloatTensor]:
         if self.use_slicing and z.shape[0] > 1:
             decoded_slices = [self._decode(z_slice).sample for z_slice in z.split(1)]
             decoded = torch.cat(decoded_slices)

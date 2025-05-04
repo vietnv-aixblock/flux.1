@@ -4,13 +4,14 @@ import json
 import os
 import re
 import time
-import torch
-from safetensors.torch import load_file, save_file
-from tqdm import tqdm
-from library import sai_model_spec, train_util
+
 import library.model_util as model_util
 import lora
+import torch
+from library import sai_model_spec, train_util
 from library.utils import setup_logging
+from safetensors.torch import load_file, save_file
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -143,7 +144,9 @@ assert len([v for v in LAYER17.values() if v]) == 17
 assert len([v for v in LAYER20.values() if v]) == 20
 assert len([v for v in LAYER26.values() if v]) == 26
 
-RE_UPDOWN = re.compile(r"(up|down)_blocks_(\d+)_(resnets|upsamplers|downsamplers|attentions)_(\d+)_")
+RE_UPDOWN = re.compile(
+    r"(up|down)_blocks_(\d+)_(resnets|upsamplers|downsamplers|attentions)_(\d+)_"
+)
 
 
 def get_lbw_block_index(lora_name: str, is_sdxl: bool = False) -> int:
@@ -179,7 +182,9 @@ def get_lbw_block_index(lora_name: str, is_sdxl: bool = False) -> int:
             if g[0] == "down":
                 block_idx = 1 + idx  # 1-based index, down block index
             elif g[0] == "up":
-                block_idx = 1 + NUM_OF_BLOCKS + 1 + idx  # 1-based index, num blocks, mid block, up block index
+                block_idx = (
+                    1 + NUM_OF_BLOCKS + 1 + idx
+                )  # 1-based index, num blocks, mid block, up block index
 
         elif "mid_block_" in lora_name:
             block_idx = 1 + NUM_OF_BLOCKS  # 1-based index, num blocks, mid block
@@ -187,7 +192,9 @@ def get_lbw_block_index(lora_name: str, is_sdxl: bool = False) -> int:
         # SDXL: some numbers are skipped
         if lora_name.startswith("lora_unet_"):
             name = lora_name[len("lora_unet_") :]
-            if name.startswith("time_embed_") or name.startswith("label_emb_"):  # 1, No LoRA in sd-scripts
+            if name.startswith("time_embed_") or name.startswith(
+                "label_emb_"
+            ):  # 1, No LoRA in sd-scripts
                 block_idx = 1
             elif name.startswith("input_blocks_"):  # 1-8 to 2-9
                 block_idx = 1 + int(name.split("_")[2])
@@ -228,9 +235,15 @@ def format_lbws(lbws):
         # lbwは"[1,1,1,1,1,1,1,1,1,1,1,1]"のような文字列で与えられることを期待している
         lbws = [json.loads(lbw) for lbw in lbws]
     except Exception:
-        raise ValueError(f"format of lbws are must be json / 層別適用率はJSON形式で書いてください")
-    assert all(isinstance(lbw, list) for lbw in lbws), f"lbws are must be list / 層別適用率はリストにしてください"
-    assert len(set(len(lbw) for lbw in lbws)) == 1, "all lbws should have the same length  / 層別適用率は同じ長さにしてください"
+        raise ValueError(
+            f"format of lbws are must be json / 層別適用率はJSON形式で書いてください"
+        )
+    assert all(
+        isinstance(lbw, list) for lbw in lbws
+    ), f"lbws are must be list / 層別適用率はリストにしてください"
+    assert (
+        len(set(len(lbw) for lbw in lbws)) == 1
+    ), "all lbws should have the same length  / 層別適用率は同じ長さにしてください"
     assert all(
         len(lbw) in ACCEPTABLE for lbw in lbws
     ), f"length of lbw are must be in {ACCEPTABLE} / 層別適用率の長さは{ACCEPTABLE}のいずれかにしてください"
@@ -250,7 +263,9 @@ def format_lbws(lbws):
     return lbws, is_sdxl, LBW_TARGET_IDX
 
 
-def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, merge_dtype):
+def merge_lora_models(
+    models, ratios, lbws, new_rank, new_conv_rank, device, merge_dtype
+):
     logger.info(f"new rank: {new_rank}, new conv rank: {new_conv_rank}")
     merged_sd = {}
     v2 = None  # This is meaning LoRA Metadata v2, Not meaning SD2
@@ -268,9 +283,13 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
 
         if lora_metadata is not None:
             if v2 is None:
-                v2 = lora_metadata.get(train_util.SS_METADATA_KEY_V2, None)  # return string
+                v2 = lora_metadata.get(
+                    train_util.SS_METADATA_KEY_V2, None
+                )  # return string
             if base_model is None:
-                base_model = lora_metadata.get(train_util.SS_METADATA_KEY_BASE_MODEL_VERSION, None)
+                base_model = lora_metadata.get(
+                    train_util.SS_METADATA_KEY_BASE_MODEL_VERSION, None
+                )
 
         if lbw:
             lbw_weights = [1] * 26
@@ -300,7 +319,10 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
 
             # make original weight if not exist
             if lora_module_name not in merged_sd:
-                weight = torch.zeros((out_dim, in_dim, *kernel_size) if conv2d else (out_dim, in_dim), dtype=merge_dtype)
+                weight = torch.zeros(
+                    (out_dim, in_dim, *kernel_size) if conv2d else (out_dim, in_dim),
+                    dtype=merge_dtype,
+                )
             else:
                 weight = merged_sd[lora_module_name]
             if device:
@@ -318,7 +340,9 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
                 index = get_lbw_block_index(key, is_sdxl)
                 is_lbw_target = index in LBW_TARGET_IDX
                 if is_lbw_target:
-                    scale *= lbw_weights[index]  # keyがlbwの対象であれば、lbwの重みを掛ける
+                    scale *= lbw_weights[
+                        index
+                    ]  # keyがlbwの対象であれば、lbwの重みを掛ける
 
             if device:  # and isinstance(scale, torch.Tensor):
                 scale = scale.to(device)
@@ -329,11 +353,18 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
                 weight = (
                     weight
                     + ratio
-                    * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)).unsqueeze(2).unsqueeze(3)
+                    * (
+                        up_weight.squeeze(3).squeeze(2)
+                        @ down_weight.squeeze(3).squeeze(2)
+                    )
+                    .unsqueeze(2)
+                    .unsqueeze(3)
                     * scale
                 )
             else:
-                conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
+                conved = torch.nn.functional.conv2d(
+                    down_weight.permute(1, 0, 2, 3), up_weight
+                ).permute(1, 0, 2, 3)
                 weight = weight + ratio * conved * scale
 
             merged_sd[lora_module_name] = weight.to("cpu")
@@ -358,7 +389,9 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
                     mat = mat.squeeze()
 
             module_new_rank = new_conv_rank if conv2d_3x3 else new_rank
-            module_new_rank = min(module_new_rank, in_dim, out_dim)  # LoRA rank cannot exceed the original dim
+            module_new_rank = min(
+                module_new_rank, in_dim, out_dim
+            )  # LoRA rank cannot exceed the original dim
 
             U, S, Vh = torch.linalg.svd(mat)
 
@@ -382,9 +415,15 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
             up_weight = U
             down_weight = Vh
 
-            merged_lora_sd[lora_module_name + ".lora_up.weight"] = up_weight.to("cpu").contiguous()
-            merged_lora_sd[lora_module_name + ".lora_down.weight"] = down_weight.to("cpu").contiguous()
-            merged_lora_sd[lora_module_name + ".alpha"] = torch.tensor(module_new_rank, device="cpu")
+            merged_lora_sd[lora_module_name + ".lora_up.weight"] = up_weight.to(
+                "cpu"
+            ).contiguous()
+            merged_lora_sd[lora_module_name + ".lora_down.weight"] = down_weight.to(
+                "cpu"
+            ).contiguous()
+            merged_lora_sd[lora_module_name + ".alpha"] = torch.tensor(
+                module_new_rank, device="cpu"
+            )
 
     # build minimum metadata
     dims = f"{new_rank}"
@@ -393,7 +432,9 @@ def merge_lora_models(models, ratios, lbws, new_rank, new_conv_rank, device, mer
         network_args = {"conv_dim": new_conv_rank, "conv_alpha": new_conv_rank}
     else:
         network_args = None
-    metadata = train_util.build_minimum_network_metadata(v2, base_model, "networks.lora", dims, alphas, network_args)
+    metadata = train_util.build_minimum_network_metadata(
+        v2, base_model, "networks.lora", dims, alphas, network_args
+    )
 
     return merged_lora_sd, metadata, v2 == "True", base_model
 
@@ -423,20 +464,34 @@ def merge(args):
     if save_dtype is None:
         save_dtype = merge_dtype
 
-    new_conv_rank = args.new_conv_rank if args.new_conv_rank is not None else args.new_rank
+    new_conv_rank = (
+        args.new_conv_rank if args.new_conv_rank is not None else args.new_rank
+    )
     state_dict, metadata, v2, base_model = merge_lora_models(
-        args.models, args.ratios, args.lbws, args.new_rank, new_conv_rank, args.device, merge_dtype
+        args.models,
+        args.ratios,
+        args.lbws,
+        args.new_rank,
+        new_conv_rank,
+        args.device,
+        merge_dtype,
     )
 
     # cast to save_dtype before calculating hashes
     for key in list(state_dict.keys()):
         value = state_dict[key]
-        if type(value) == torch.Tensor and value.dtype.is_floating_point and value.dtype != save_dtype:
+        if (
+            type(value) == torch.Tensor
+            and value.dtype.is_floating_point
+            and value.dtype != save_dtype
+        ):
             state_dict[key] = value.to(save_dtype)
 
     logger.info(f"calculating hashes and creating metadata...")
 
-    model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(state_dict, metadata)
+    model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+        state_dict, metadata
+    )
     metadata["sshs_model_hash"] = model_hash
     metadata["sshs_legacy_hash"] = legacy_hash
 
@@ -445,7 +500,15 @@ def merge(args):
         merged_from = sai_model_spec.build_merged_from(args.models)
         title = os.path.splitext(os.path.basename(args.save_to))[0]
         sai_metadata = sai_model_spec.build_metadata(
-            state_dict, v2, v2, is_sdxl, True, False, time.time(), title=title, merged_from=merged_from
+            state_dict,
+            v2,
+            v2,
+            is_sdxl,
+            True,
+            False,
+            time.time(),
+            title=title,
+            merged_from=merged_from,
         )
         if v2:
             # TODO read sai modelspec
@@ -486,9 +549,24 @@ def setup_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="LoRA models to merge: ckpt or safetensors file / マージするLoRAモデル、ckptまたはsafetensors",
     )
-    parser.add_argument("--ratios", type=float, nargs="*", help="ratios for each model / それぞれのLoRAモデルの比率")
-    parser.add_argument("--lbws", type=str, nargs="*", help="lbw for each model / それぞれのLoRAモデルの層別適用率")
-    parser.add_argument("--new_rank", type=int, default=4, help="Specify rank of output LoRA / 出力するLoRAのrank (dim)")
+    parser.add_argument(
+        "--ratios",
+        type=float,
+        nargs="*",
+        help="ratios for each model / それぞれのLoRAモデルの比率",
+    )
+    parser.add_argument(
+        "--lbws",
+        type=str,
+        nargs="*",
+        help="lbw for each model / それぞれのLoRAモデルの層別適用率",
+    )
+    parser.add_argument(
+        "--new_rank",
+        type=int,
+        default=4,
+        help="Specify rank of output LoRA / 出力するLoRAのrank (dim)",
+    )
     parser.add_argument(
         "--new_conv_rank",
         type=int,
@@ -496,7 +574,10 @@ def setup_parser() -> argparse.ArgumentParser:
         help="Specify rank of output LoRA for Conv2d 3x3, None for same as new_rank / 出力するConv2D 3x3 LoRAのrank (dim)、Noneでnew_rankと同じ",
     )
     parser.add_argument(
-        "--device", type=str, default=None, help="device to use, cuda for GPU / 計算を行うデバイス、cuda でGPUを使う"
+        "--device",
+        type=str,
+        default=None,
+        help="device to use, cuda for GPU / 計算を行うデバイス、cuda でGPUを使う",
     )
     parser.add_argument(
         "--no_metadata",

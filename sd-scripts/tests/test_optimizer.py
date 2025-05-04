@@ -1,20 +1,18 @@
 from unittest.mock import patch
-from library.train_util import get_optimizer
-from train_network import setup_parser
-import torch
-from torch.nn import Parameter
 
 # Optimizer libraries
 import bitsandbytes as bnb
-from lion_pytorch import lion_pytorch
-import schedulefree
-
 import dadaptation
 import dadaptation.experimental as dadapt_experimental
-
 import prodigyopt
+import schedulefree
 import schedulefree as sf
+import torch
 import transformers
+from library.train_util import get_optimizer
+from lion_pytorch import lion_pytorch
+from torch.nn import Parameter
+from train_network import setup_parser
 
 
 def test_default_get_optimizer():

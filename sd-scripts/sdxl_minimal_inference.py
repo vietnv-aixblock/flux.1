@@ -6,25 +6,24 @@ import datetime
 import math
 import os
 import random
-from einops import repeat
-import numpy as np
 
+import numpy as np
 import torch
-from library.device_utils import init_ipex, get_preferred_device
+from einops import repeat
+from library.device_utils import get_preferred_device, init_ipex
 
 init_ipex()
 
-from tqdm import tqdm
-from transformers import CLIPTokenizer
+import networks.lora as lora
 from diffusers import EulerDiscreteScheduler
+from library import model_util, sdxl_model_util
+from library.utils import setup_logging
 from PIL import Image
 
 # import open_clip
 from safetensors.torch import load_file
-
-from library import model_util, sdxl_model_util
-import networks.lora as lora
-from library.utils import setup_logging
+from tqdm import tqdm
+from transformers import CLIPTokenizer
 
 setup_logging()
 import logging
@@ -54,13 +53,17 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
     if not repeat_only:
         half = dim // 2
-        freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half).to(
-            device=timesteps.device
-        )
+        freqs = torch.exp(
+            -math.log(max_period)
+            * torch.arange(start=0, end=half, dtype=torch.float32)
+            / half
+        ).to(device=timesteps.device)
         args = timesteps[:, None].float() * freqs[None]
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = torch.cat(
+                [embedding, torch.zeros_like(embedding[:, :1])], dim=-1
+            )
     else:
         embedding = repeat(timesteps, "b -> b d", d=dim)
     return embedding
@@ -123,8 +126,10 @@ if __name__ == "__main__":
 
     # 本体RAMが少ない場合はGPUにロードするといいかも
     # If the main RAM is small, it may be better to load it on the GPU
-    text_model1, text_model2, vae, unet, _, _ = sdxl_model_util.load_models_from_sdxl_checkpoint(
-        sdxl_model_util.MODEL_VERSION_SDXL_BASE_V1_0, args.ckpt_path, "cpu"
+    text_model1, text_model2, vae, unet, _, _ = (
+        sdxl_model_util.load_models_from_sdxl_checkpoint(
+            sdxl_model_util.MODEL_VERSION_SDXL_BASE_V1_0, args.ckpt_path, "cpu"
+        )
     )
 
     # Text Encoder 1はSDXL本体でもHuggingFaceのものを使っている
@@ -192,9 +197,15 @@ if __name__ == "__main__":
         # prepare embedding
         with torch.no_grad():
             # vector
-            emb1 = get_timestep_embedding(torch.FloatTensor([original_height, original_width]).unsqueeze(0), 256)
-            emb2 = get_timestep_embedding(torch.FloatTensor([crop_top, crop_left]).unsqueeze(0), 256)
-            emb3 = get_timestep_embedding(torch.FloatTensor([target_height, target_width]).unsqueeze(0), 256)
+            emb1 = get_timestep_embedding(
+                torch.FloatTensor([original_height, original_width]).unsqueeze(0), 256
+            )
+            emb2 = get_timestep_embedding(
+                torch.FloatTensor([crop_top, crop_left]).unsqueeze(0), 256
+            )
+            emb3 = get_timestep_embedding(
+                torch.FloatTensor([target_height, target_width]).unsqueeze(0), 256
+            )
             # logger.info("emb1", emb1.shape)
             c_vector = torch.cat([emb1, emb2, emb3], dim=1).to(DEVICE, dtype=DTYPE)
             uc_vector = c_vector.clone().to(
@@ -217,7 +228,9 @@ if __name__ == "__main__":
             tokens = batch_encoding["input_ids"].to(DEVICE)
 
             with torch.no_grad():
-                enc_out = text_model1(tokens, output_hidden_states=True, return_dict=True)
+                enc_out = text_model1(
+                    tokens, output_hidden_states=True, return_dict=True
+                )
                 text_embedding1 = enc_out["hidden_states"][11]
                 # text_embedding = pipe.text_encoder.text_model.final_layer_norm(text_embedding)    # layer normは通さないらしい
 
@@ -234,10 +247,14 @@ if __name__ == "__main__":
             tokens = batch_encoding["input_ids"].to(DEVICE)
 
             with torch.no_grad():
-                enc_out = text_model2(tokens, output_hidden_states=True, return_dict=True)
+                enc_out = text_model2(
+                    tokens, output_hidden_states=True, return_dict=True
+                )
                 text_embedding2_penu = enc_out["hidden_states"][-2]
                 # logger.info("hidden_states2", text_embedding2_penu.shape)
-                text_embedding2_pool = enc_out["text_embeds"]  # do not support Textual Inversion
+                text_embedding2_pool = enc_out[
+                    "text_embeds"
+                ]  # do not support Textual Inversion
 
             # 連結して終了 concat and finish
             text_embedding = torch.cat([text_embedding1, text_embedding2_penu], dim=2)
@@ -296,10 +313,16 @@ if __name__ == "__main__":
                 latent_model_input = latents.repeat((num_latent_input, 1, 1, 1))
                 latent_model_input = scheduler.scale_model_input(latent_model_input, t)
 
-                noise_pred = unet(latent_model_input, t, text_embeddings, vector_embeddings)
+                noise_pred = unet(
+                    latent_model_input, t, text_embeddings, vector_embeddings
+                )
 
-                noise_pred_uncond, noise_pred_text = noise_pred.chunk(num_latent_input)  # uncond by negative prompt
-                noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)
+                noise_pred_uncond, noise_pred_text = noise_pred.chunk(
+                    num_latent_input
+                )  # uncond by negative prompt
+                noise_pred = noise_pred_uncond + guidance_scale * (
+                    noise_pred_text - noise_pred_uncond
+                )
 
                 # compute the previous noisy sample x_t -> x_t-1
                 # latents = scheduler.step(noise_pred, t, latents, **extra_step_kwargs).prev_sample

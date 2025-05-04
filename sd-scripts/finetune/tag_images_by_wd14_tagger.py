@@ -4,14 +4,13 @@ import os
 from pathlib import Path
 
 import cv2
+import library.train_util as train_util
 import numpy as np
 import torch
 from huggingface_hub import hf_hub_download
+from library.utils import pil_resize, setup_logging
 from PIL import Image
 from tqdm import tqdm
-
-import library.train_util as train_util
-from library.utils import setup_logging, pil_resize
 
 setup_logging()
 import logging
@@ -40,7 +39,12 @@ def preprocess_image(image):
     pad_y = size - image.shape[0]
     pad_l = pad_x // 2
     pad_t = pad_y // 2
-    image = np.pad(image, ((pad_t, pad_y - pad_t), (pad_l, pad_x - pad_l), (0, 0)), mode="constant", constant_values=255)
+    image = np.pad(
+        image,
+        ((pad_t, pad_y - pad_t), (pad_l, pad_x - pad_l), (0, 0)),
+        mode="constant",
+        constant_values=255,
+    )
 
     if size > IMAGE_SIZE:
         image = cv2.resize(image, (IMAGE_SIZE, IMAGE_SIZE), cv2.INTER_AREA)
@@ -66,7 +70,9 @@ class ImageLoadingPrepDataset(torch.utils.data.Dataset):
             image = preprocess_image(image)
             # tensor = torch.tensor(image) # これ Tensor に変換する必要ないな……(;･∀･)
         except Exception as e:
-            logger.error(f"Could not load image path / 画像を読み込めません: {img_path}, error: {e}")
+            logger.error(
+                f"Could not load image path / 画像を読み込めません: {img_path}, error: {e}"
+            )
             return None
 
         return (image, img_path)
@@ -108,7 +114,13 @@ def main(args):
                     force_filename=file,
                 )
         for file in files:
-            hf_hub_download(args.repo_id, file, cache_dir=model_location, force_download=True, force_filename=file)
+            hf_hub_download(
+                args.repo_id,
+                file,
+                cache_dir=model_location,
+                force_download=True,
+                force_filename=file,
+            )
     else:
         logger.info("using existing wd14 tagger model")
 
@@ -134,7 +146,11 @@ def main(args):
         except Exception:
             batch_size = model.graph.input[0].type.tensor_type.shape.dim[0].dim_param
 
-        if args.batch_size != batch_size and not isinstance(batch_size, str) and batch_size > 0:
+        if (
+            args.batch_size != batch_size
+            and not isinstance(batch_size, str)
+            and batch_size > 0
+        ):
             # some rebatch model may use 'N' as dynamic axes
             logger.warning(
                 f"Batch size {args.batch_size} doesn't match onnx model batch size {batch_size}, use model batch size {batch_size}"
@@ -149,15 +165,19 @@ def main(args):
             ort_sess = ort.InferenceSession(
                 onnx_path,
                 providers=(["OpenVINOExecutionProvider"]),
-                provider_options=[{'device_type' : "GPU_FP32"}],
+                provider_options=[{"device_type": "GPU_FP32"}],
             )
         else:
             ort_sess = ort.InferenceSession(
                 onnx_path,
                 providers=(
-                    ["CUDAExecutionProvider"] if "CUDAExecutionProvider" in ort.get_available_providers() else
-                    ["ROCMExecutionProvider"] if "ROCMExecutionProvider" in ort.get_available_providers() else
-                    ["CPUExecutionProvider"]
+                    ["CUDAExecutionProvider"]
+                    if "CUDAExecutionProvider" in ort.get_available_providers()
+                    else (
+                        ["ROCMExecutionProvider"]
+                        if "ROCMExecutionProvider" in ort.get_available_providers()
+                        else ["CPUExecutionProvider"]
+                    )
                 ),
             )
     else:
@@ -173,7 +193,9 @@ def main(args):
         line = [row for row in reader]
         header = line[0]  # tag_id,name,category,count
         rows = line[1:]
-    assert header[0] == "tag_id" and header[1] == "name" and header[2] == "category", f"unexpected csv format: {header}"
+    assert (
+        header[0] == "tag_id" and header[1] == "name" and header[2] == "category"
+    ), f"unexpected csv format: {header}"
 
     rating_tags = [row[1] for row in rows[0:] if row[2] == "9"]
     general_tags = [row[1] for row in rows[0:] if row[2] == "0"]
@@ -193,19 +215,31 @@ def main(args):
                 character_tags[i] = character_tag + args.caption_separator + series_tag
 
     if args.remove_underscore:
-        rating_tags = [tag.replace("_", " ") if len(tag) > 3 else tag for tag in rating_tags]
-        general_tags = [tag.replace("_", " ") if len(tag) > 3 else tag for tag in general_tags]
-        character_tags = [tag.replace("_", " ") if len(tag) > 3 else tag for tag in character_tags]
+        rating_tags = [
+            tag.replace("_", " ") if len(tag) > 3 else tag for tag in rating_tags
+        ]
+        general_tags = [
+            tag.replace("_", " ") if len(tag) > 3 else tag for tag in general_tags
+        ]
+        character_tags = [
+            tag.replace("_", " ") if len(tag) > 3 else tag for tag in character_tags
+        ]
 
     if args.tag_replacement is not None:
         # escape , and ; in tag_replacement: wd14 tag names may contain , and ;
-        escaped_tag_replacements = args.tag_replacement.replace("\\,", "@@@@").replace("\\;", "####")
+        escaped_tag_replacements = args.tag_replacement.replace("\\,", "@@@@").replace(
+            "\\;", "####"
+        )
         tag_replacements = escaped_tag_replacements.split(";")
         for tag_replacement in tag_replacements:
             tags = tag_replacement.split(",")  # source, target
-            assert len(tags) == 2, f"tag replacement must be in the format of `source,target` / タグの置換は `置換元,置換先` の形式で指定してください: {args.tag_replacement}"
+            assert (
+                len(tags) == 2
+            ), f"tag replacement must be in the format of `source,target` / タグの置換は `置換元,置換先` の形式で指定してください: {args.tag_replacement}"
 
-            source, target = [tag.replace("@@@@", ",").replace("####", ";") for tag in tags]
+            source, target = [
+                tag.replace("@@@@", ",").replace("####", ";") for tag in tags
+            ]
             logger.info(f"replacing tag: {source} -> {target}")
 
             if source in general_tags:
@@ -229,7 +263,11 @@ def main(args):
 
     always_first_tags = None
     if args.always_first_tags is not None:
-        always_first_tags = [tag for tag in args.always_first_tags.split(stripped_caption_separator) if tag.strip() != ""]
+        always_first_tags = [
+            tag
+            for tag in args.always_first_tags.split(stripped_caption_separator)
+            if tag.strip() != ""
+        ]
 
     def run_batch(path_imgs):
         imgs = np.array([im for _, im in path_imgs])
@@ -265,7 +303,7 @@ def main(args):
                     if tag_name not in undesired_tags:
                         tag_freq[tag_name] = tag_freq.get(tag_name, 0) + 1
                         character_tag_text += caption_separator + tag_name
-                        if args.character_tags_first: # insert to the beginning
+                        if args.character_tags_first:  # insert to the beginning
                             combined_tags.insert(0, tag_name)
                         else:
                             combined_tags.append(tag_name)
@@ -281,7 +319,7 @@ def main(args):
                     tag_freq[found_rating] = tag_freq.get(found_rating, 0) + 1
                     rating_tag_text = found_rating
                     if args.use_rating_tags:
-                        combined_tags.insert(0, found_rating) # insert to the beginning
+                        combined_tags.insert(0, found_rating)  # insert to the beginning
                     else:
                         combined_tags.append(found_rating)
 
@@ -311,10 +349,16 @@ def main(args):
                         existing_content = f.read().strip("\n")  # Remove newlines
 
                     # Split the content into tags and store them in a list
-                    existing_tags = [tag.strip() for tag in existing_content.split(stripped_caption_separator) if tag.strip()]
+                    existing_tags = [
+                        tag.strip()
+                        for tag in existing_content.split(stripped_caption_separator)
+                        if tag.strip()
+                    ]
 
                     # Check and remove repeating tags in tag_text
-                    new_tags = [tag for tag in combined_tags if tag not in existing_tags]
+                    new_tags = [
+                        tag for tag in combined_tags if tag not in existing_tags
+                    ]
 
                     # Create new tag_text
                     tag_text = caption_separator.join(existing_tags + new_tags)
@@ -356,17 +400,23 @@ def main(args):
                         image = image.convert("RGB")
                     image = preprocess_image(image)
                 except Exception as e:
-                    logger.error(f"Could not load image path / 画像を読み込めません: {image_path}, error: {e}")
+                    logger.error(
+                        f"Could not load image path / 画像を読み込めません: {image_path}, error: {e}"
+                    )
                     continue
             b_imgs.append((image_path, image))
 
             if len(b_imgs) >= args.batch_size:
-                b_imgs = [(str(image_path), image) for image_path, image in b_imgs]  # Convert image_path to string
+                b_imgs = [
+                    (str(image_path), image) for image_path, image in b_imgs
+                ]  # Convert image_path to string
                 run_batch(b_imgs)
                 b_imgs.clear()
 
     if len(b_imgs) > 0:
-        b_imgs = [(str(image_path), image) for image_path, image in b_imgs]  # Convert image_path to string
+        b_imgs = [
+            (str(image_path), image) for image_path, image in b_imgs
+        ]  # Convert image_path to string
         run_batch(b_imgs)
 
     if args.frequency_tags:
@@ -381,7 +431,9 @@ def main(args):
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ"
+        "train_data_dir",
+        type=str,
+        help="directory for train images / 学習画像データのディレクトリ",
     )
     parser.add_argument(
         "--repo_id",
@@ -401,7 +453,10 @@ def setup_parser() -> argparse.ArgumentParser:
         help="force downloading wd14 tagger models / wd14 taggerのモデルを再ダウンロードします",
     )
     parser.add_argument(
-        "--batch_size", type=int, default=1, help="batch size in inference / 推論時のバッチサイズ"
+        "--batch_size",
+        type=int,
+        default=1,
+        help="batch size in inference / 推論時のバッチサイズ",
     )
     parser.add_argument(
         "--max_data_loader_n_workers",
@@ -416,10 +471,16 @@ def setup_parser() -> argparse.ArgumentParser:
         help="extension of caption file (for backward compatibility) / 出力されるキャプションファイルの拡張子（スペルミスしていたのを残してあります）",
     )
     parser.add_argument(
-        "--caption_extension", type=str, default=".txt", help="extension of caption file / 出力されるキャプションファイルの拡張子"
+        "--caption_extension",
+        type=str,
+        default=".txt",
+        help="extension of caption file / 出力されるキャプションファイルの拡張子",
     )
     parser.add_argument(
-        "--thresh", type=float, default=0.35, help="threshold of confidence to add a tag / タグを追加するか判定する閾値"
+        "--thresh",
+        type=float,
+        default=0.35,
+        help="threshold of confidence to add a tag / タグを追加するか判定する閾値",
     )
     parser.add_argument(
         "--general_threshold",
@@ -434,16 +495,16 @@ def setup_parser() -> argparse.ArgumentParser:
         help="threshold of confidence to add a tag for character category, same as --thres if omitted / characterカテゴリのタグを追加するための確信度の閾値、省略時は --thresh と同じ",
     )
     parser.add_argument(
-        "--recursive", action="store_true", help="search for images in subfolders recursively / サブフォルダを再帰的に検索する"
+        "--recursive",
+        action="store_true",
+        help="search for images in subfolders recursively / サブフォルダを再帰的に検索する",
     )
     parser.add_argument(
         "--remove_underscore",
         action="store_true",
         help="replace underscores with spaces in the output tags / 出力されるタグのアンダースコアをスペースに置き換える",
     )
-    parser.add_argument(
-        "--debug", action="store_true", help="debug mode"
-    )
+    parser.add_argument("--debug", action="store_true", help="debug mode")
     parser.add_argument(
         "--undesired_tags",
         type=str,
@@ -451,22 +512,34 @@ def setup_parser() -> argparse.ArgumentParser:
         help="comma-separated list of undesired tags to remove from the output / 出力から除外したいタグのカンマ区切りのリスト",
     )
     parser.add_argument(
-        "--frequency_tags", action="store_true", help="Show frequency of tags for images / タグの出現頻度を表示する"
+        "--frequency_tags",
+        action="store_true",
+        help="Show frequency of tags for images / タグの出現頻度を表示する",
     )
     parser.add_argument(
-        "--onnx", action="store_true", help="use onnx model for inference / onnxモデルを推論に使用する"
+        "--onnx",
+        action="store_true",
+        help="use onnx model for inference / onnxモデルを推論に使用する",
     )
     parser.add_argument(
-        "--append_tags", action="store_true", help="Append captions instead of overwriting / 上書きではなくキャプションを追記する"
+        "--append_tags",
+        action="store_true",
+        help="Append captions instead of overwriting / 上書きではなくキャプションを追記する",
     )
     parser.add_argument(
-        "--use_rating_tags", action="store_true", help="Adds rating tags as the first tag / レーティングタグを最初のタグとして追加する",
+        "--use_rating_tags",
+        action="store_true",
+        help="Adds rating tags as the first tag / レーティングタグを最初のタグとして追加する",
     )
     parser.add_argument(
-        "--use_rating_tags_as_last_tag", action="store_true", help="Adds rating tags as the last tag / レーティングタグを最後のタグとして追加する",
+        "--use_rating_tags_as_last_tag",
+        action="store_true",
+        help="Adds rating tags as the last tag / レーティングタグを最後のタグとして追加する",
     )
     parser.add_argument(
-        "--character_tags_first", action="store_true", help="Always inserts character tags before the general tags / characterタグを常にgeneralタグの前に出力する",
+        "--character_tags_first",
+        action="store_true",
+        help="Always inserts character tags before the general tags / characterタグを常にgeneralタグの前に出力する",
     )
     parser.add_argument(
         "--always_first_tags",

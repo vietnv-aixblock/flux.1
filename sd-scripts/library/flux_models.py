@@ -16,10 +16,9 @@ init_ipex()
 
 import torch
 from einops import rearrange
+from library import custom_offloading_utils
 from torch import Tensor, nn
 from torch.utils.checkpoint import checkpoint
-
-from library import custom_offloading_utils
 
 # USE_REENTRANT = True
 
@@ -65,7 +64,9 @@ class AttnBlock(nn.Module):
         super().__init__()
         self.in_channels = in_channels
 
-        self.norm = nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+        self.norm = nn.GroupNorm(
+            num_groups=32, num_channels=in_channels, eps=1e-6, affine=True
+        )
 
         self.q = nn.Conv2d(in_channels, in_channels, kernel_size=1)
         self.k = nn.Conv2d(in_channels, in_channels, kernel_size=1)
@@ -97,12 +98,22 @@ class ResnetBlock(nn.Module):
         out_channels = in_channels if out_channels is None else out_channels
         self.out_channels = out_channels
 
-        self.norm1 = nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
-        self.norm2 = nn.GroupNorm(num_groups=32, num_channels=out_channels, eps=1e-6, affine=True)
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.norm1 = nn.GroupNorm(
+            num_groups=32, num_channels=in_channels, eps=1e-6, affine=True
+        )
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, kernel_size=3, stride=1, padding=1
+        )
+        self.norm2 = nn.GroupNorm(
+            num_groups=32, num_channels=out_channels, eps=1e-6, affine=True
+        )
+        self.conv2 = nn.Conv2d(
+            out_channels, out_channels, kernel_size=3, stride=1, padding=1
+        )
         if self.in_channels != self.out_channels:
-            self.nin_shortcut = nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=1, padding=0)
+            self.nin_shortcut = nn.Conv2d(
+                in_channels, out_channels, kernel_size=1, stride=1, padding=0
+            )
 
     def forward(self, x):
         h = x
@@ -124,7 +135,9 @@ class Downsample(nn.Module):
     def __init__(self, in_channels: int):
         super().__init__()
         # no asymmetric padding in torch conv, must do it ourselves
-        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=0)
+        self.conv = nn.Conv2d(
+            in_channels, in_channels, kernel_size=3, stride=2, padding=0
+        )
 
     def forward(self, x: Tensor):
         pad = (0, 1, 0, 1)
@@ -136,7 +149,9 @@ class Downsample(nn.Module):
 class Upsample(nn.Module):
     def __init__(self, in_channels: int):
         super().__init__()
-        self.conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
+        self.conv = nn.Conv2d(
+            in_channels, in_channels, kernel_size=3, stride=1, padding=1
+        )
 
     def forward(self, x: Tensor):
         x = nn.functional.interpolate(x, scale_factor=2.0, mode="nearest")
@@ -161,7 +176,9 @@ class Encoder(nn.Module):
         self.resolution = resolution
         self.in_channels = in_channels
         # downsampling
-        self.conv_in = nn.Conv2d(in_channels, self.ch, kernel_size=3, stride=1, padding=1)
+        self.conv_in = nn.Conv2d(
+            in_channels, self.ch, kernel_size=3, stride=1, padding=1
+        )
 
         curr_res = resolution
         in_ch_mult = (1,) + tuple(ch_mult)
@@ -191,8 +208,12 @@ class Encoder(nn.Module):
         self.mid.block_2 = ResnetBlock(in_channels=block_in, out_channels=block_in)
 
         # end
-        self.norm_out = nn.GroupNorm(num_groups=32, num_channels=block_in, eps=1e-6, affine=True)
-        self.conv_out = nn.Conv2d(block_in, 2 * z_channels, kernel_size=3, stride=1, padding=1)
+        self.norm_out = nn.GroupNorm(
+            num_groups=32, num_channels=block_in, eps=1e-6, affine=True
+        )
+        self.conv_out = nn.Conv2d(
+            block_in, 2 * z_channels, kernel_size=3, stride=1, padding=1
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         # downsampling
@@ -243,7 +264,9 @@ class Decoder(nn.Module):
         self.z_shape = (1, z_channels, curr_res, curr_res)
 
         # z to block_in
-        self.conv_in = nn.Conv2d(z_channels, block_in, kernel_size=3, stride=1, padding=1)
+        self.conv_in = nn.Conv2d(
+            z_channels, block_in, kernel_size=3, stride=1, padding=1
+        )
 
         # middle
         self.mid = nn.Module()
@@ -269,7 +292,9 @@ class Decoder(nn.Module):
             self.up.insert(0, up)  # prepend to get consistent order
 
         # end
-        self.norm_out = nn.GroupNorm(num_groups=32, num_channels=block_in, eps=1e-6, affine=True)
+        self.norm_out = nn.GroupNorm(
+            num_groups=32, num_channels=block_in, eps=1e-6, affine=True
+        )
         self.conv_out = nn.Conv2d(block_in, out_ch, kernel_size=3, stride=1, padding=1)
 
     def forward(self, z: Tensor) -> Tensor:
@@ -446,7 +471,9 @@ configs = {
 # region math
 
 
-def attention(q: Tensor, k: Tensor, v: Tensor, pe: Tensor, attn_mask: Optional[Tensor] = None) -> Tensor:
+def attention(
+    q: Tensor, k: Tensor, v: Tensor, pe: Tensor, attn_mask: Optional[Tensor] = None
+) -> Tensor:
     q, k = apply_rope(q, k, pe)
 
     x = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=attn_mask)
@@ -460,7 +487,9 @@ def rope(pos: Tensor, dim: int, theta: int) -> Tensor:
     scale = torch.arange(0, dim, 2, dtype=torch.float64, device=pos.device) / dim
     omega = 1.0 / (theta**scale)
     out = torch.einsum("...n,d->...nd", pos, omega)
-    out = torch.stack([torch.cos(out), -torch.sin(out), torch.sin(out), torch.cos(out)], dim=-1)
+    out = torch.stack(
+        [torch.cos(out), -torch.sin(out), torch.sin(out), torch.cos(out)], dim=-1
+    )
     out = rearrange(out, "b n d (i j) -> b n d i j", i=2, j=2)
     return out.float()
 
@@ -532,7 +561,11 @@ def timestep_embedding(t: Tensor, dim, max_period=10000, time_factor: float = 10
     """
     t = time_factor * t
     half = dim // 2
-    freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half).to(t.device)
+    freqs = torch.exp(
+        -math.log(max_period)
+        * torch.arange(start=0, end=half, dtype=torch.float32)
+        / half
+    ).to(t.device)
 
     args = t[:, None].float() * freqs[None]
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
@@ -638,7 +671,9 @@ class Modulation(nn.Module):
         self.lin = nn.Linear(dim, self.multiplier * dim, bias=True)
 
     def forward(self, vec: Tensor) -> tuple[ModulationOut, ModulationOut | None]:
-        out = self.lin(nn.functional.silu(vec))[:, None, :].chunk(self.multiplier, dim=-1)
+        out = self.lin(nn.functional.silu(vec))[:, None, :].chunk(
+            self.multiplier, dim=-1
+        )
 
         return (
             ModulationOut(*out[:3]),
@@ -647,7 +682,9 @@ class Modulation(nn.Module):
 
 
 class DoubleStreamBlock(nn.Module):
-    def __init__(self, hidden_size: int, num_heads: int, mlp_ratio: float, qkv_bias: bool = False):
+    def __init__(
+        self, hidden_size: int, num_heads: int, mlp_ratio: float, qkv_bias: bool = False
+    ):
         super().__init__()
 
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
@@ -655,7 +692,9 @@ class DoubleStreamBlock(nn.Module):
         self.hidden_size = hidden_size
         self.img_mod = Modulation(hidden_size, double=True)
         self.img_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.img_attn = SelfAttention(dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias)
+        self.img_attn = SelfAttention(
+            dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias
+        )
 
         self.img_norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.img_mlp = nn.Sequential(
@@ -666,7 +705,9 @@ class DoubleStreamBlock(nn.Module):
 
         self.txt_mod = Modulation(hidden_size, double=True)
         self.txt_norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.txt_attn = SelfAttention(dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias)
+        self.txt_attn = SelfAttention(
+            dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias
+        )
 
         self.txt_norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.txt_mlp = nn.Sequential(
@@ -687,7 +728,12 @@ class DoubleStreamBlock(nn.Module):
         self.cpu_offload_checkpointing = False
 
     def _forward(
-        self, img: Tensor, txt: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None
+        self,
+        img: Tensor,
+        txt: Tensor,
+        vec: Tensor,
+        pe: Tensor,
+        txt_attention_mask: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor]:
         img_mod1, img_mod2 = self.img_mod(vec)
         txt_mod1, txt_mod2 = self.txt_mod(vec)
@@ -696,14 +742,18 @@ class DoubleStreamBlock(nn.Module):
         img_modulated = self.img_norm1(img)
         img_modulated = (1 + img_mod1.scale) * img_modulated + img_mod1.shift
         img_qkv = self.img_attn.qkv(img_modulated)
-        img_q, img_k, img_v = rearrange(img_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        img_q, img_k, img_v = rearrange(
+            img_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads
+        )
         img_q, img_k = self.img_attn.norm(img_q, img_k, img_v)
 
         # prepare txt for attention
         txt_modulated = self.txt_norm1(txt)
         txt_modulated = (1 + txt_mod1.scale) * txt_modulated + txt_mod1.shift
         txt_qkv = self.txt_attn.qkv(txt_modulated)
-        txt_q, txt_k, txt_v = rearrange(txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
+        txt_q, txt_k, txt_v = rearrange(
+            txt_qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads
+        )
         txt_q, txt_k = self.txt_attn.norm(txt_q, txt_k, txt_v)
 
         # run actual attention
@@ -717,30 +767,58 @@ class DoubleStreamBlock(nn.Module):
             # F.scaled_dot_product_attention expects attn_mask to be bool for binary mask
             attn_mask = txt_attention_mask.to(torch.bool)  # b, seq_len
             attn_mask = torch.cat(
-                (attn_mask, torch.ones(attn_mask.shape[0], img.shape[1], device=attn_mask.device, dtype=torch.bool)), dim=1
+                (
+                    attn_mask,
+                    torch.ones(
+                        attn_mask.shape[0],
+                        img.shape[1],
+                        device=attn_mask.device,
+                        dtype=torch.bool,
+                    ),
+                ),
+                dim=1,
             )  # b, seq_len + img_len
 
             # broadcast attn_mask to all heads
-            attn_mask = attn_mask[:, None, None, :].expand(-1, q.shape[1], q.shape[2], -1)
+            attn_mask = attn_mask[:, None, None, :].expand(
+                -1, q.shape[1], q.shape[2], -1
+            )
 
         attn = attention(q, k, v, pe=pe, attn_mask=attn_mask)
         txt_attn, img_attn = attn[:, : txt.shape[1]], attn[:, txt.shape[1] :]
 
         # calculate the img blocks
         img = img + img_mod1.gate * self.img_attn.proj(img_attn)
-        img = img + img_mod2.gate * self.img_mlp((1 + img_mod2.scale) * self.img_norm2(img) + img_mod2.shift)
+        img = img + img_mod2.gate * self.img_mlp(
+            (1 + img_mod2.scale) * self.img_norm2(img) + img_mod2.shift
+        )
 
         # calculate the txt blocks
         txt = txt + txt_mod1.gate * self.txt_attn.proj(txt_attn)
-        txt = txt + txt_mod2.gate * self.txt_mlp((1 + txt_mod2.scale) * self.txt_norm2(txt) + txt_mod2.shift)
+        txt = txt + txt_mod2.gate * self.txt_mlp(
+            (1 + txt_mod2.scale) * self.txt_norm2(txt) + txt_mod2.shift
+        )
         return img, txt
 
     def forward(
-        self, img: Tensor, txt: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None
+        self,
+        img: Tensor,
+        txt: Tensor,
+        vec: Tensor,
+        pe: Tensor,
+        txt_attention_mask: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor]:
         if self.training and self.gradient_checkpointing:
             if not self.cpu_offload_checkpointing:
-                return checkpoint(self._forward, img, txt, vec, pe, txt_attention_mask, use_reentrant=False)
+                return checkpoint(
+                    self._forward,
+                    img,
+                    txt,
+                    vec,
+                    pe,
+                    txt_attention_mask,
+                    use_reentrant=False,
+                )
             # cpu offload checkpointing
 
             def create_custom_forward(func):
@@ -752,7 +830,13 @@ class DoubleStreamBlock(nn.Module):
                 return custom_forward
 
             return torch.utils.checkpoint.checkpoint(
-                create_custom_forward(self._forward), img, txt, vec, pe, txt_attention_mask, use_reentrant=False
+                create_custom_forward(self._forward),
+                img,
+                txt,
+                vec,
+                pe,
+                txt_attention_mask,
+                use_reentrant=False,
             )
 
         else:
@@ -803,10 +887,18 @@ class SingleStreamBlock(nn.Module):
         self.gradient_checkpointing = False
         self.cpu_offload_checkpointing = False
 
-    def _forward(self, x: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None) -> Tensor:
+    def _forward(
+        self,
+        x: Tensor,
+        vec: Tensor,
+        pe: Tensor,
+        txt_attention_mask: Optional[Tensor] = None,
+    ) -> Tensor:
         mod, _ = self.modulation(vec)
         x_mod = (1 + mod.scale) * self.pre_norm(x) + mod.shift
-        qkv, mlp = torch.split(self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1)
+        qkv, mlp = torch.split(
+            self.linear1(x_mod), [3 * self.hidden_size, self.mlp_hidden_dim], dim=-1
+        )
 
         q, k, v = rearrange(qkv, "B L (K H D) -> K B H L D", K=3, H=self.num_heads)
         q, k = self.norm(q, k, v)
@@ -820,14 +912,19 @@ class SingleStreamBlock(nn.Module):
                 (
                     attn_mask,
                     torch.ones(
-                        attn_mask.shape[0], x.shape[1] - txt_attention_mask.shape[1], device=attn_mask.device, dtype=torch.bool
+                        attn_mask.shape[0],
+                        x.shape[1] - txt_attention_mask.shape[1],
+                        device=attn_mask.device,
+                        dtype=torch.bool,
                     ),
                 ),
                 dim=1,
             )  # b, seq_len + img_len = x_len
 
             # broadcast attn_mask to all heads
-            attn_mask = attn_mask[:, None, None, :].expand(-1, q.shape[1], q.shape[2], -1)
+            attn_mask = attn_mask[:, None, None, :].expand(
+                -1, q.shape[1], q.shape[2], -1
+            )
 
         # compute attention
         attn = attention(q, k, v, pe=pe, attn_mask=attn_mask)
@@ -836,10 +933,18 @@ class SingleStreamBlock(nn.Module):
         output = self.linear2(torch.cat((attn, self.mlp_act(mlp)), 2))
         return x + mod.gate * output
 
-    def forward(self, x: Tensor, vec: Tensor, pe: Tensor, txt_attention_mask: Optional[Tensor] = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        vec: Tensor,
+        pe: Tensor,
+        txt_attention_mask: Optional[Tensor] = None,
+    ) -> Tensor:
         if self.training and self.gradient_checkpointing:
             if not self.cpu_offload_checkpointing:
-                return checkpoint(self._forward, x, vec, pe, txt_attention_mask, use_reentrant=False)
+                return checkpoint(
+                    self._forward, x, vec, pe, txt_attention_mask, use_reentrant=False
+                )
 
             # cpu offload checkpointing
 
@@ -852,7 +957,12 @@ class SingleStreamBlock(nn.Module):
                 return custom_forward
 
             return torch.utils.checkpoint.checkpoint(
-                create_custom_forward(self._forward), x, vec, pe, txt_attention_mask, use_reentrant=False
+                create_custom_forward(self._forward),
+                x,
+                vec,
+                pe,
+                txt_attention_mask,
+                use_reentrant=False,
             )
         else:
             return self._forward(x, vec, pe, txt_attention_mask)
@@ -862,8 +972,12 @@ class LastLayer(nn.Module):
     def __init__(self, hidden_size: int, patch_size: int, out_channels: int):
         super().__init__()
         self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.linear = nn.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True)
-        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True))
+        self.linear = nn.Linear(
+            hidden_size, patch_size * patch_size * out_channels, bias=True
+        )
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(hidden_size, 2 * hidden_size, bias=True)
+        )
 
     def forward(self, x: Tensor, vec: Tensor) -> Tensor:
         shift, scale = self.adaLN_modulation(vec).chunk(2, dim=1)
@@ -887,17 +1001,27 @@ class Flux(nn.Module):
         self.in_channels = params.in_channels
         self.out_channels = self.in_channels
         if params.hidden_size % params.num_heads != 0:
-            raise ValueError(f"Hidden size {params.hidden_size} must be divisible by num_heads {params.num_heads}")
+            raise ValueError(
+                f"Hidden size {params.hidden_size} must be divisible by num_heads {params.num_heads}"
+            )
         pe_dim = params.hidden_size // params.num_heads
         if sum(params.axes_dim) != pe_dim:
-            raise ValueError(f"Got {params.axes_dim} but expected positional dim {pe_dim}")
+            raise ValueError(
+                f"Got {params.axes_dim} but expected positional dim {pe_dim}"
+            )
         self.hidden_size = params.hidden_size
         self.num_heads = params.num_heads
-        self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
+        self.pe_embedder = EmbedND(
+            dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim
+        )
         self.img_in = nn.Linear(self.in_channels, self.hidden_size, bias=True)
         self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size)
         self.vector_in = MLPEmbedder(params.vec_in_dim, self.hidden_size)
-        self.guidance_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size) if params.guidance_embed else nn.Identity()
+        self.guidance_in = (
+            MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size)
+            if params.guidance_embed
+            else nn.Identity()
+        )
         self.txt_in = nn.Linear(params.context_in_dim, self.hidden_size)
 
         self.double_blocks = nn.ModuleList(
@@ -914,7 +1038,9 @@ class Flux(nn.Module):
 
         self.single_blocks = nn.ModuleList(
             [
-                SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio)
+                SingleStreamBlock(
+                    self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio
+                )
                 for _ in range(params.depth_single_blocks)
             ]
         )
@@ -971,16 +1097,25 @@ class Flux(nn.Module):
         double_blocks_to_swap = num_blocks // 2
         single_blocks_to_swap = (num_blocks - double_blocks_to_swap) * 2
 
-        assert double_blocks_to_swap <= self.num_double_blocks - 2 and single_blocks_to_swap <= self.num_single_blocks - 2, (
+        assert (
+            double_blocks_to_swap <= self.num_double_blocks - 2
+            and single_blocks_to_swap <= self.num_single_blocks - 2
+        ), (
             f"Cannot swap more than {self.num_double_blocks - 2} double blocks and {self.num_single_blocks - 2} single blocks. "
             f"Requested {double_blocks_to_swap} double blocks and {single_blocks_to_swap} single blocks."
         )
 
         self.offloader_double = custom_offloading_utils.ModelOffloader(
-            self.double_blocks, self.num_double_blocks, double_blocks_to_swap, device  # , debug=True
+            self.double_blocks,
+            self.num_double_blocks,
+            double_blocks_to_swap,
+            device,  # , debug=True
         )
         self.offloader_single = custom_offloading_utils.ModelOffloader(
-            self.single_blocks, self.num_single_blocks, single_blocks_to_swap, device  # , debug=True
+            self.single_blocks,
+            self.num_single_blocks,
+            single_blocks_to_swap,
+            device,  # , debug=True
         )
         print(
             f"FLUX: Block swap enabled. Swapping {num_blocks} blocks, double blocks: {double_blocks_to_swap}, single blocks: {single_blocks_to_swap}."
@@ -1027,7 +1162,9 @@ class Flux(nn.Module):
         vec = self.time_in(timestep_embedding(timesteps, 256))
         if self.params.guidance_embed:
             if guidance is None:
-                raise ValueError("Didn't get guidance strength for guidance distilled model.")
+                raise ValueError(
+                    "Didn't get guidance strength for guidance distilled model."
+                )
             vec = vec + self.guidance_in(timestep_embedding(guidance, 256))
         vec = vec + self.vector_in(y)
         txt = self.txt_in(txt)
@@ -1041,22 +1178,48 @@ class Flux(nn.Module):
 
         if not self.blocks_to_swap:
             for block_idx, block in enumerate(self.double_blocks):
-                img, txt = block(img=img, txt=txt, vec=vec, pe=pe, txt_attention_mask=txt_attention_mask)
+                img, txt = block(
+                    img=img,
+                    txt=txt,
+                    vec=vec,
+                    pe=pe,
+                    txt_attention_mask=txt_attention_mask,
+                )
                 if block_controlnet_hidden_states is not None and controlnet_depth > 0:
-                    img = img + block_controlnet_hidden_states[block_idx % controlnet_depth]
+                    img = (
+                        img
+                        + block_controlnet_hidden_states[block_idx % controlnet_depth]
+                    )
 
             img = torch.cat((txt, img), 1)
             for block_idx, block in enumerate(self.single_blocks):
                 img = block(img, vec=vec, pe=pe, txt_attention_mask=txt_attention_mask)
-                if block_controlnet_single_hidden_states is not None and controlnet_single_depth > 0:
-                    img = img + block_controlnet_single_hidden_states[block_idx % controlnet_single_depth]
+                if (
+                    block_controlnet_single_hidden_states is not None
+                    and controlnet_single_depth > 0
+                ):
+                    img = (
+                        img
+                        + block_controlnet_single_hidden_states[
+                            block_idx % controlnet_single_depth
+                        ]
+                    )
         else:
             for block_idx, block in enumerate(self.double_blocks):
                 self.offloader_double.wait_for_block(block_idx)
 
-                img, txt = block(img=img, txt=txt, vec=vec, pe=pe, txt_attention_mask=txt_attention_mask)
+                img, txt = block(
+                    img=img,
+                    txt=txt,
+                    vec=vec,
+                    pe=pe,
+                    txt_attention_mask=txt_attention_mask,
+                )
                 if block_controlnet_hidden_states is not None and controlnet_depth > 0:
-                    img = img + block_controlnet_hidden_states[block_idx % controlnet_depth]
+                    img = (
+                        img
+                        + block_controlnet_hidden_states[block_idx % controlnet_depth]
+                    )
 
                 self.offloader_double.submit_move_blocks(self.double_blocks, block_idx)
 
@@ -1066,8 +1229,16 @@ class Flux(nn.Module):
                 self.offloader_single.wait_for_block(block_idx)
 
                 img = block(img, vec=vec, pe=pe, txt_attention_mask=txt_attention_mask)
-                if block_controlnet_single_hidden_states is not None and controlnet_single_depth > 0:
-                    img = img + block_controlnet_single_hidden_states[block_idx % controlnet_single_depth]
+                if (
+                    block_controlnet_single_hidden_states is not None
+                    and controlnet_single_depth > 0
+                ):
+                    img = (
+                        img
+                        + block_controlnet_single_hidden_states[
+                            block_idx % controlnet_single_depth
+                        ]
+                    )
 
                 self.offloader_single.submit_move_blocks(self.single_blocks, block_idx)
 
@@ -1093,24 +1264,36 @@ class ControlNetFlux(nn.Module):
     Transformer model for flow matching on sequences.
     """
 
-    def __init__(self, params: FluxParams, controlnet_depth=2, controlnet_single_depth=0):
+    def __init__(
+        self, params: FluxParams, controlnet_depth=2, controlnet_single_depth=0
+    ):
         super().__init__()
 
         self.params = params
         self.in_channels = params.in_channels
         self.out_channels = self.in_channels
         if params.hidden_size % params.num_heads != 0:
-            raise ValueError(f"Hidden size {params.hidden_size} must be divisible by num_heads {params.num_heads}")
+            raise ValueError(
+                f"Hidden size {params.hidden_size} must be divisible by num_heads {params.num_heads}"
+            )
         pe_dim = params.hidden_size // params.num_heads
         if sum(params.axes_dim) != pe_dim:
-            raise ValueError(f"Got {params.axes_dim} but expected positional dim {pe_dim}")
+            raise ValueError(
+                f"Got {params.axes_dim} but expected positional dim {pe_dim}"
+            )
         self.hidden_size = params.hidden_size
         self.num_heads = params.num_heads
-        self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
+        self.pe_embedder = EmbedND(
+            dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim
+        )
         self.img_in = nn.Linear(self.in_channels, self.hidden_size, bias=True)
         self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size)
         self.vector_in = MLPEmbedder(params.vec_in_dim, self.hidden_size)
-        self.guidance_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size) if params.guidance_embed else nn.Identity()
+        self.guidance_in = (
+            MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size)
+            if params.guidance_embed
+            else nn.Identity()
+        )
         self.txt_in = nn.Linear(params.context_in_dim, self.hidden_size)
 
         self.double_blocks = nn.ModuleList(
@@ -1127,7 +1310,9 @@ class ControlNetFlux(nn.Module):
 
         self.single_blocks = nn.ModuleList(
             [
-                SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio)
+                SingleStreamBlock(
+                    self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio
+                )
                 for _ in range(controlnet_single_depth)
             ]
         )
@@ -1169,7 +1354,7 @@ class ControlNetFlux(nn.Module):
             nn.SiLU(),
             nn.Conv2d(16, 16, 3, padding=1, stride=2),
             nn.SiLU(),
-            zero_module(nn.Conv2d(16, 16, 3, padding=1))
+            zero_module(nn.Conv2d(16, 16, 3, padding=1)),
         )
 
     @property
@@ -1213,16 +1398,25 @@ class ControlNetFlux(nn.Module):
         double_blocks_to_swap = num_blocks // 2
         single_blocks_to_swap = (num_blocks - double_blocks_to_swap) * 2
 
-        assert double_blocks_to_swap <= self.num_double_blocks - 2 and single_blocks_to_swap <= self.num_single_blocks - 2, (
+        assert (
+            double_blocks_to_swap <= self.num_double_blocks - 2
+            and single_blocks_to_swap <= self.num_single_blocks - 2
+        ), (
             f"Cannot swap more than {self.num_double_blocks - 2} double blocks and {self.num_single_blocks - 2} single blocks. "
             f"Requested {double_blocks_to_swap} double blocks and {single_blocks_to_swap} single blocks."
         )
 
         self.offloader_double = custom_offloading_utils.ModelOffloader(
-            self.double_blocks, self.num_double_blocks, double_blocks_to_swap, device  # , debug=True
+            self.double_blocks,
+            self.num_double_blocks,
+            double_blocks_to_swap,
+            device,  # , debug=True
         )
         self.offloader_single = custom_offloading_utils.ModelOffloader(
-            self.single_blocks, self.num_single_blocks, single_blocks_to_swap, device  # , debug=True
+            self.single_blocks,
+            self.num_single_blocks,
+            single_blocks_to_swap,
+            device,  # , debug=True
         )
         print(
             f"FLUX: Block swap enabled. Swapping {num_blocks} blocks, double blocks: {double_blocks_to_swap}, single blocks: {single_blocks_to_swap}."
@@ -1266,13 +1460,17 @@ class ControlNetFlux(nn.Module):
         # running on sequences img
         img = self.img_in(img)
         controlnet_cond = self.input_hint_block(controlnet_cond)
-        controlnet_cond = rearrange(controlnet_cond, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2)
+        controlnet_cond = rearrange(
+            controlnet_cond, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=2, pw=2
+        )
         controlnet_cond = self.pos_embed_input(controlnet_cond)
         img = img + controlnet_cond
         vec = self.time_in(timestep_embedding(timesteps, 256))
         if self.params.guidance_embed:
             if guidance is None:
-                raise ValueError("Didn't get guidance strength for guidance distilled model.")
+                raise ValueError(
+                    "Didn't get guidance strength for guidance distilled model."
+                )
             vec = vec + self.guidance_in(timestep_embedding(guidance, 256))
         vec = vec + self.vector_in(y)
         txt = self.txt_in(txt)
@@ -1284,7 +1482,13 @@ class ControlNetFlux(nn.Module):
         block_single_samples = ()
         if not self.blocks_to_swap:
             for block in self.double_blocks:
-                img, txt = block(img=img, txt=txt, vec=vec, pe=pe, txt_attention_mask=txt_attention_mask)
+                img, txt = block(
+                    img=img,
+                    txt=txt,
+                    vec=vec,
+                    pe=pe,
+                    txt_attention_mask=txt_attention_mask,
+                )
                 block_samples = block_samples + (img,)
 
             img = torch.cat((txt, img), 1)
@@ -1295,7 +1499,13 @@ class ControlNetFlux(nn.Module):
             for block_idx, block in enumerate(self.double_blocks):
                 self.offloader_double.wait_for_block(block_idx)
 
-                img, txt = block(img=img, txt=txt, vec=vec, pe=pe, txt_attention_mask=txt_attention_mask)
+                img, txt = block(
+                    img=img,
+                    txt=txt,
+                    vec=vec,
+                    pe=pe,
+                    txt_attention_mask=txt_attention_mask,
+                )
                 block_samples = block_samples + (img,)
 
                 self.offloader_double.submit_move_blocks(self.double_blocks, block_idx)
@@ -1312,12 +1522,18 @@ class ControlNetFlux(nn.Module):
 
         controlnet_block_samples = ()
         controlnet_single_block_samples = ()
-        for block_sample, controlnet_block in zip(block_samples, self.controlnet_blocks):
+        for block_sample, controlnet_block in zip(
+            block_samples, self.controlnet_blocks
+        ):
             block_sample = controlnet_block(block_sample)
             controlnet_block_samples = controlnet_block_samples + (block_sample,)
-        for block_sample, controlnet_block in zip(block_samples, self.controlnet_blocks_for_single):
+        for block_sample, controlnet_block in zip(
+            block_samples, self.controlnet_blocks_for_single
+        ):
             block_sample = controlnet_block(block_sample)
-            controlnet_single_block_samples = controlnet_single_block_samples + (block_sample,)
+            controlnet_single_block_samples = controlnet_single_block_samples + (
+                block_sample,
+            )
 
         return controlnet_block_samples, controlnet_single_block_samples
 

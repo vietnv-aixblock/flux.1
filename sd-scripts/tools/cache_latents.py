@@ -2,21 +2,25 @@
 
 import argparse
 import math
-from multiprocessing import Value
 import os
+from multiprocessing import Value
 
-from accelerate.utils import set_seed
 import torch
-from tqdm import tqdm
-
-from library import config_util, flux_train_utils, flux_utils, strategy_base, strategy_flux, strategy_sd, strategy_sdxl
-from library import train_util
-from library import sdxl_train_util
-from library.config_util import (
-    ConfigSanitizer,
-    BlueprintGenerator,
+from accelerate.utils import set_seed
+from library import (
+    config_util,
+    flux_train_utils,
+    flux_utils,
+    sdxl_train_util,
+    strategy_base,
+    strategy_flux,
+    strategy_sd,
+    strategy_sdxl,
+    train_util,
 )
-from library.utils import setup_logging, add_logging_arguments
+from library.config_util import BlueprintGenerator, ConfigSanitizer
+from library.utils import add_logging_arguments, setup_logging
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -24,16 +28,24 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def set_tokenize_strategy(is_sd: bool, is_sdxl: bool, is_flux: bool, args: argparse.Namespace) -> None:
+def set_tokenize_strategy(
+    is_sd: bool, is_sdxl: bool, is_flux: bool, args: argparse.Namespace
+) -> None:
     if is_flux:
-        _, is_schnell, _ = flux_utils.check_flux_state_dict_diffusers_schnell(args.pretrained_model_name_or_path)
+        _, is_schnell, _ = flux_utils.check_flux_state_dict_diffusers_schnell(
+            args.pretrained_model_name_or_path
+        )
     else:
         is_schnell = False
 
     if is_sd:
-        tokenize_strategy = strategy_sd.SdTokenizeStrategy(args.v2, args.max_token_length, args.tokenizer_cache_dir)
+        tokenize_strategy = strategy_sd.SdTokenizeStrategy(
+            args.v2, args.max_token_length, args.tokenizer_cache_dir
+        )
     elif is_sdxl:
-        tokenize_strategy = strategy_sdxl.SdxlTokenizeStrategy(args.max_token_length, args.tokenizer_cache_dir)
+        tokenize_strategy = strategy_sdxl.SdxlTokenizeStrategy(
+            args.max_token_length, args.tokenizer_cache_dir
+        )
     else:
         if args.t5xxl_max_token_length is None:
             if is_schnell:
@@ -44,7 +56,9 @@ def set_tokenize_strategy(is_sd: bool, is_sdxl: bool, is_flux: bool, args: argpa
             t5xxl_max_token_length = args.t5xxl_max_token_length
 
         logger.info(f"t5xxl_max_token_length: {t5xxl_max_token_length}")
-        tokenize_strategy = strategy_flux.FluxTokenizeStrategy(t5xxl_max_token_length, args.tokenizer_cache_dir)
+        tokenize_strategy = strategy_flux.FluxTokenizeStrategy(
+            t5xxl_max_token_length, args.tokenizer_cache_dir
+        )
     strategy_base.TokenizeStrategy.set_strategy(tokenize_strategy)
 
 
@@ -69,15 +83,21 @@ def cache_to_disk(args: argparse.Namespace) -> None:
     set_tokenize_strategy(is_sd, is_sdxl, is_flux, args)
 
     if is_sd or is_sdxl:
-        latents_caching_strategy = strategy_sd.SdSdxlLatentsCachingStrategy(is_sd, True, args.vae_batch_size, args.skip_cache_check)
+        latents_caching_strategy = strategy_sd.SdSdxlLatentsCachingStrategy(
+            is_sd, True, args.vae_batch_size, args.skip_cache_check
+        )
     else:
-        latents_caching_strategy = strategy_flux.FluxLatentsCachingStrategy(True, args.vae_batch_size, args.skip_cache_check)
+        latents_caching_strategy = strategy_flux.FluxLatentsCachingStrategy(
+            True, args.vae_batch_size, args.skip_cache_check
+        )
     strategy_base.LatentsCachingStrategy.set_strategy(latents_caching_strategy)
 
     # データセットを準備する
     use_user_config = args.dataset_config is not None
     if args.dataset_class is None:
-        blueprint_generator = BlueprintGenerator(ConfigSanitizer(True, True, args.masked_loss, True))
+        blueprint_generator = BlueprintGenerator(
+            ConfigSanitizer(True, True, args.masked_loss, True)
+        )
         if use_user_config:
             logger.info(f"Loading dataset config from {args.dataset_config}")
             user_config = config_util.load_user_config(args.dataset_config)
@@ -116,7 +136,9 @@ def cache_to_disk(args: argparse.Namespace) -> None:
                 }
 
         blueprint = blueprint_generator.generate(user_config, args)
-        train_dataset_group, val_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        train_dataset_group, val_dataset_group = (
+            config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        )
     else:
         # use arbitrary dataset class
         train_dataset_group = train_util.load_arbitrary_dataset(args)
@@ -136,12 +158,21 @@ def cache_to_disk(args: argparse.Namespace) -> None:
     if is_sd:
         _, vae, _, _ = train_util.load_target_model(args, weight_dtype, accelerator)
     elif is_sdxl:
-        (_, _, _, vae, _, _, _) = sdxl_train_util.load_target_model(args, accelerator, "sdxl", weight_dtype)
+        (_, _, _, vae, _, _, _) = sdxl_train_util.load_target_model(
+            args, accelerator, "sdxl", weight_dtype
+        )
     else:
-        vae = flux_utils.load_ae(args.ae, weight_dtype, "cpu", disable_mmap=args.disable_mmap_load_safetensors)
+        vae = flux_utils.load_ae(
+            args.ae,
+            weight_dtype,
+            "cpu",
+            disable_mmap=args.disable_mmap_load_safetensors,
+        )
 
     if is_sd or is_sdxl:
-        if torch.__version__ >= "2.0.0":  # PyTorch 2.0.0 以上対応のxformersなら以下が使える
+        if (
+            torch.__version__ >= "2.0.0"
+        ):  # PyTorch 2.0.0 以上対応のxformersなら以下が使える
             vae.set_use_memory_efficient_attention_xformers(args.xformers)
 
     vae.to(accelerator.device, dtype=vae_dtype)
@@ -168,8 +199,12 @@ def setup_parser() -> argparse.ArgumentParser:
     train_util.add_dit_training_arguments(parser)
     flux_train_utils.add_flux_train_arguments(parser)
 
-    parser.add_argument("--sdxl", action="store_true", help="Use SDXL model / SDXLモデルを使用する")
-    parser.add_argument("--flux", action="store_true", help="Use FLUX model / FLUXモデルを使用する")
+    parser.add_argument(
+        "--sdxl", action="store_true", help="Use SDXL model / SDXLモデルを使用する"
+    )
+    parser.add_argument(
+        "--flux", action="store_true", help="Use FLUX model / FLUXモデルを使用する"
+    )
     parser.add_argument(
         "--no_half_vae",
         action="store_true",

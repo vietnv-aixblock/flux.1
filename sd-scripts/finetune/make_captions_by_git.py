@@ -1,28 +1,31 @@
 import argparse
 import os
 import re
-
 from pathlib import Path
+
+import torch
+from library.device_utils import get_preferred_device, init_ipex
 from PIL import Image
 from tqdm import tqdm
 
-import torch
-from library.device_utils import init_ipex, get_preferred_device
 init_ipex()
-
-from transformers import AutoProcessor, AutoModelForCausalLM
-from transformers.generation.utils import GenerationMixin
 
 import library.train_util as train_util
 from library.utils import setup_logging
+from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers.generation.utils import GenerationMixin
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 PATTERN_REPLACE = [
-    re.compile(r'(has|with|and) the (words?|letters?|name) (" ?[^"]*"|\w+)( ?(is )?(on|in) (the |her |their |him )?\w+)?'),
+    re.compile(
+        r'(has|with|and) the (words?|letters?|name) (" ?[^"]*"|\w+)( ?(is )?(on|in) (the |her |their |him )?\w+)?'
+    ),
     re.compile(r'(with a sign )?that says ?(" ?[^"]*"|\w+)( ?on it)?'),
     re.compile(r"(with a sign )?that says ?(' ?(i'm)?[^']*'|\w+)( ?on it)?"),
     re.compile(r"with the number \d+ on (it|\w+ \w+)"),
@@ -93,15 +96,23 @@ def main(args):
         imgs = [im for _, im in path_imgs]
 
         # curr_batch_size[0] = len(path_imgs)
-        inputs = git_processor(images=imgs, return_tensors="pt").to(DEVICE)  # 画像はpil形式
-        generated_ids = git_model.generate(pixel_values=inputs.pixel_values, max_length=args.max_length)
+        inputs = git_processor(images=imgs, return_tensors="pt").to(
+            DEVICE
+        )  # 画像はpil形式
+        generated_ids = git_model.generate(
+            pixel_values=inputs.pixel_values, max_length=args.max_length
+        )
         captions = git_processor.batch_decode(generated_ids, skip_special_tokens=True)
 
         if args.remove_words:
             captions = remove_words(captions, args.debug)
 
         for (image_path, _), caption in zip(path_imgs, captions):
-            with open(os.path.splitext(image_path)[0] + args.caption_extension, "wt", encoding="utf-8") as f:
+            with open(
+                os.path.splitext(image_path)[0] + args.caption_extension,
+                "wt",
+                encoding="utf-8",
+            ) as f:
                 f.write(caption + "\n")
                 if args.debug:
                     logger.info(f"{image_path} {caption}")
@@ -133,7 +144,9 @@ def main(args):
                     if image.mode != "RGB":
                         image = image.convert("RGB")
                 except Exception as e:
-                    logger.error(f"Could not load image path / 画像を読み込めません: {image_path}, error: {e}")
+                    logger.error(
+                        f"Could not load image path / 画像を読み込めません: {image_path}, error: {e}"
+                    )
                     continue
 
             b_imgs.append((image_path, image))
@@ -149,29 +162,52 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
-    parser.add_argument("--caption_extension", type=str, default=".caption", help="extension of caption file / 出力されるキャプションファイルの拡張子")
+    parser.add_argument(
+        "train_data_dir",
+        type=str,
+        help="directory for train images / 学習画像データのディレクトリ",
+    )
+    parser.add_argument(
+        "--caption_extension",
+        type=str,
+        default=".caption",
+        help="extension of caption file / 出力されるキャプションファイルの拡張子",
+    )
     parser.add_argument(
         "--model_id",
         type=str,
         default="microsoft/git-large-textcaps",
         help="model id for GIT in Hugging Face / 使用するGITのHugging FaceのモデルID",
     )
-    parser.add_argument("--batch_size", type=int, default=1, help="batch size in inference / 推論時のバッチサイズ")
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="batch size in inference / 推論時のバッチサイズ",
+    )
     parser.add_argument(
         "--max_data_loader_n_workers",
         type=int,
         default=None,
         help="enable image reading by DataLoader with this number of workers (faster) / DataLoaderによる画像読み込みを有効にしてこのワーカー数を適用する（読み込みを高速化）",
     )
-    parser.add_argument("--max_length", type=int, default=50, help="max length of caption / captionの最大長")
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=50,
+        help="max length of caption / captionの最大長",
+    )
     parser.add_argument(
         "--remove_words",
         action="store_true",
         help="remove like `with the words xxx` from caption / `with the words xxx`のような部分をキャプションから削除する",
     )
     parser.add_argument("--debug", action="store_true", help="debug mode")
-    parser.add_argument("--recursive", action="store_true", help="search for images in subfolders recursively / サブフォルダを再帰的に検索する")
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="search for images in subfolders recursively / サブフォルダを再帰的に検索する",
+    )
 
     return parser
 

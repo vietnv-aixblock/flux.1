@@ -3,12 +3,13 @@
 import math
 from types import SimpleNamespace
 from typing import Any, Optional
+
 import torch
 import torch.utils.checkpoint
-from torch import nn
-from torch.nn import functional as F
 from einops import rearrange
 from library.utils import setup_logging
+from torch import nn
+from torch.nn import functional as F
 
 setup_logging()
 import logging
@@ -16,7 +17,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 from library import sdxl_original_unet
-from library.sdxl_model_util import convert_sdxl_unet_state_dict_to_diffusers, convert_diffusers_unet_state_dict_to_sdxl
+from library.sdxl_model_util import (
+    convert_diffusers_unet_state_dict_to_sdxl,
+    convert_sdxl_unet_state_dict_to_diffusers,
+)
 
 
 class ControlNetConditioningEmbedding(nn.Module):
@@ -31,8 +35,12 @@ class ControlNetConditioningEmbedding(nn.Module):
         for i in range(len(dims) - 1):
             channel_in = dims[i]
             channel_out = dims[i + 1]
-            self.blocks.append(nn.Conv2d(channel_in, channel_in, kernel_size=3, padding=1))
-            self.blocks.append(nn.Conv2d(channel_in, channel_out, kernel_size=3, padding=1, stride=2))
+            self.blocks.append(
+                nn.Conv2d(channel_in, channel_in, kernel_size=3, padding=1)
+            )
+            self.blocks.append(
+                nn.Conv2d(channel_in, channel_out, kernel_size=3, padding=1, stride=2)
+            )
 
         self.conv_out = nn.Conv2d(dims[-1], 320, kernel_size=3, padding=1)
         nn.init.zeros_(self.conv_out.weight)  # zero module weight
@@ -78,7 +86,9 @@ class SdxlControlNet(sdxl_original_unet.SdxlUNet2DConditionModel):
         info = super().load_state_dict(sd, strict=True, assign=True)
         return info
 
-    def load_state_dict(self, state_dict: dict, strict: bool = True, assign: bool = True) -> Any:
+    def load_state_dict(
+        self, state_dict: dict, strict: bool = True, assign: bool = True
+    ) -> Any:
         # convert state_dict to SAI format
         unet_sd = {}
         for k in list(state_dict.keys()):
@@ -111,11 +121,15 @@ class SdxlControlNet(sdxl_original_unet.SdxlUNet2DConditionModel):
         # broadcast timesteps to batch dimension
         timesteps = timesteps.expand(x.shape[0])
 
-        t_emb = sdxl_original_unet.get_timestep_embedding(timesteps, self.model_channels, downscale_freq_shift=0)
+        t_emb = sdxl_original_unet.get_timestep_embedding(
+            timesteps, self.model_channels, downscale_freq_shift=0
+        )
         t_emb = t_emb.to(x.dtype)
         emb = self.time_embed(t_emb)
 
-        assert x.shape[0] == y.shape[0], f"batch size mismatch: {x.shape[0]} != {y.shape[0]}"
+        assert (
+            x.shape[0] == y.shape[0]
+        ), f"batch size mismatch: {x.shape[0]} != {y.shape[0]}"
         assert x.dtype == y.dtype, f"dtype mismatch: {x.dtype} != {y.dtype}"
         emb = emb + self.label_emb(y)
 
@@ -153,16 +167,29 @@ class SdxlControlledUNet(sdxl_original_unet.SdxlUNet2DConditionModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def forward(self, x, timesteps=None, context=None, y=None, input_resi_add=None, mid_add=None, **kwargs):
+    def forward(
+        self,
+        x,
+        timesteps=None,
+        context=None,
+        y=None,
+        input_resi_add=None,
+        mid_add=None,
+        **kwargs,
+    ):
         # broadcast timesteps to batch dimension
         timesteps = timesteps.expand(x.shape[0])
 
         hs = []
-        t_emb = sdxl_original_unet.get_timestep_embedding(timesteps, self.model_channels, downscale_freq_shift=0)
+        t_emb = sdxl_original_unet.get_timestep_embedding(
+            timesteps, self.model_channels, downscale_freq_shift=0
+        )
         t_emb = t_emb.to(x.dtype)
         emb = self.time_embed(t_emb)
 
-        assert x.shape[0] == y.shape[0], f"batch size mismatch: {x.shape[0]} != {y.shape[0]}"
+        assert (
+            x.shape[0] == y.shape[0]
+        ), f"batch size mismatch: {x.shape[0]} != {y.shape[0]}"
         assert x.dtype == y.dtype, f"dtype mismatch: {x.dtype} != {y.dtype}"
         emb = emb + self.label_emb(y)
 
@@ -226,7 +253,9 @@ if __name__ == "__main__":
 
     import bitsandbytes
 
-    optimizer = bitsandbytes.adam.Adam8bit(control_net.parameters(), lr=1e-3)  # not working
+    optimizer = bitsandbytes.adam.Adam8bit(
+        control_net.parameters(), lr=1e-3
+    )  # not working
     # optimizer = bitsandbytes.optim.RMSprop8bit(unet.parameters(), lr=1e-3)  # working at 23.5 GB with torch2
     # optimizer=bitsandbytes.optim.Adagrad8bit(unet.parameters(), lr=1e-3)  # working at 23.5 GB with torch2
 
@@ -262,7 +291,9 @@ if __name__ == "__main__":
         optimizer.zero_grad(set_to_none=True)
 
     time_end = time.perf_counter()
-    logger.info(f"elapsed time: {time_end - time_start} [sec] for last {steps - 1} steps")
+    logger.info(
+        f"elapsed time: {time_end - time_start} [sec] for last {steps - 1} steps"
+    )
 
     logger.info("finish training")
     sd = control_net.state_dict()

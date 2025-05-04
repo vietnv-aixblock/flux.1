@@ -3,23 +3,23 @@
 
 # and some module/classes are contributed from KohakuBlueleaf. Thanks for the contribution!
 
+import math
 from ast import Tuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
-import math
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Union
+
 import einops
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
-from transformers import CLIPTokenizer, T5TokenizerFast
-
 from library import custom_offloading_utils
 from library.device_utils import clean_memory_on_device
+from torch.utils.checkpoint import checkpoint
+from transformers import CLIPTokenizer, T5TokenizerFast
 
 from .utils import setup_logging
 
@@ -89,7 +89,9 @@ def get_2d_sincos_pos_embed_from_grid(embed_dim, grid):
     return emb
 
 
-def get_scaled_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_tokens=0, sample_size=64, base_size=16):
+def get_scaled_2d_sincos_pos_embed(
+    embed_dim, grid_size, cls_token=False, extra_tokens=0, sample_size=64, base_size=16
+):
     """
     This function is contributed by KohakuBlueleaf. Thanks for the contribution!
 
@@ -149,7 +151,9 @@ def get_scaled_2d_sincos_pos_embed(embed_dim, grid_size, cls_token=False, extra_
 
     # Add zeros for extra tokens (e.g., [CLS] token) if required
     if cls_token and extra_tokens > 0:
-        pos_embed = np.concatenate([np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0)
+        pos_embed = np.concatenate(
+            [np.zeros([extra_tokens, embed_dim]), pos_embed], axis=0
+        )
 
     return pos_embed
 
@@ -209,12 +213,20 @@ def get_2d_sincos_pos_embed_torch(
     val_h = (h / small) * val_magnitude
     val_w = (w / small) * val_magnitude
     grid_h, grid_w = torch.meshgrid(
-        torch.linspace(-val_h + val_center, val_h + val_center, h, device=device, dtype=dtype),
-        torch.linspace(-val_w + val_center, val_w + val_center, w, device=device, dtype=dtype),
+        torch.linspace(
+            -val_h + val_center, val_h + val_center, h, device=device, dtype=dtype
+        ),
+        torch.linspace(
+            -val_w + val_center, val_w + val_center, w, device=device, dtype=dtype
+        ),
         indexing="ij",
     )
-    emb_h = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_h, device=device, dtype=dtype)
-    emb_w = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_w, device=device, dtype=dtype)
+    emb_h = get_1d_sincos_pos_embed_from_grid_torch(
+        embed_dim // 2, grid_h, device=device, dtype=dtype
+    )
+    emb_w = get_1d_sincos_pos_embed_from_grid_torch(
+        embed_dim // 2, grid_w, device=device, dtype=dtype
+    )
     emb = torch.cat([emb_w, emb_h], dim=1)  # (H*W, D)
     return emb
 
@@ -236,7 +248,11 @@ def timestep_embedding(t, dim, max_period=10000):
     # freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half).to(
     #     device=t.device, dtype=t.dtype
     # )
-    freqs = torch.exp(-math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32) / half).to(device=t.device)
+    freqs = torch.exp(
+        -math.log(max_period)
+        * torch.arange(start=0, end=half, dtype=torch.float32)
+        / half
+    ).to(device=t.device)
     args = t[:, None].float() * freqs[None]
     embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
     if dim % 2:
@@ -508,7 +524,9 @@ class AttentionLinears(nn.Module):
 
 MEMORY_LAYOUTS = {
     "torch": (
-        lambda x, head_dim: x.reshape(x.shape[0], x.shape[1], -1, head_dim).transpose(1, 2),
+        lambda x, head_dim: x.reshape(x.shape[0], x.shape[1], -1, head_dim).transpose(
+            1, 2
+        ),
         lambda x: x.transpose(1, 2).reshape(x.shape[0], x.shape[2], -1),
         lambda x: (1, x, 1, 1),
     ),
@@ -518,7 +536,9 @@ MEMORY_LAYOUTS = {
         lambda x: (1, 1, x, 1),
     ),
     "math": (
-        lambda x, head_dim: x.reshape(x.shape[0], x.shape[1], -1, head_dim).transpose(1, 2),
+        lambda x, head_dim: x.reshape(x.shape[0], x.shape[1], -1, head_dim).transpose(
+            1, 2
+        ),
         lambda x: x.transpose(1, 2).reshape(x.shape[0], x.shape[2], -1),
         lambda x: (1, x, 1, 1),
     ),
@@ -555,7 +575,9 @@ def attention(q, k, v, head_dim, mask=None, scale=None, mode="xformers"):
     # scores = ATTN_FUNCTION[mode](q, k.to(q), v.to(q), mask, scale=scale)
     if mode == "torch":
         assert scale is None
-        scores = F.scaled_dot_product_attention(q, k.to(q), v.to(q), mask)  # , scale=scale)
+        scores = F.scaled_dot_product_attention(
+            q, k.to(q), v.to(q), mask
+        )  # , scale=scale)
     elif mode == "xformers":
         scores = memory_efficient_attention(q, k.to(q), v.to(q), mask, scale=scale)
     else:
@@ -593,17 +615,31 @@ class SingleDiTBlock(nn.Module):
             self.norm1 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         else:
             self.norm1 = RMSNorm(hidden_size, elementwise_affine=False, eps=1e-6)
-        self.attn = AttentionLinears(dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias, pre_only=pre_only, qk_norm=qk_norm)
+        self.attn = AttentionLinears(
+            dim=hidden_size,
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            pre_only=pre_only,
+            qk_norm=qk_norm,
+        )
 
         self.x_block_self_attn = x_block_self_attn
         if self.x_block_self_attn:
             assert not pre_only
             assert not scale_mod_only
-            self.attn2 = AttentionLinears(dim=hidden_size, num_heads=num_heads, qkv_bias=qkv_bias, pre_only=False, qk_norm=qk_norm)
+            self.attn2 = AttentionLinears(
+                dim=hidden_size,
+                num_heads=num_heads,
+                qkv_bias=qkv_bias,
+                pre_only=False,
+                qk_norm=qk_norm,
+            )
 
         if not pre_only:
             if not rmsnorm:
-                self.norm2 = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+                self.norm2 = nn.LayerNorm(
+                    hidden_size, elementwise_affine=False, eps=1e-6
+                )
             else:
                 self.norm2 = RMSNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         mlp_hidden_dim = int(hidden_size * mlp_ratio)
@@ -627,17 +663,23 @@ class SingleDiTBlock(nn.Module):
             n_mods = 6 if not pre_only else 2
         else:
             n_mods = 4 if not pre_only else 1
-        self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(hidden_size, n_mods * hidden_size))
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(), nn.Linear(hidden_size, n_mods * hidden_size)
+        )
         self.pre_only = pre_only
 
     def pre_attention(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         if not self.pre_only:
             if not self.scale_mod_only:
-                (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp) = self.adaLN_modulation(c).chunk(6, dim=-1)
+                (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp) = (
+                    self.adaLN_modulation(c).chunk(6, dim=-1)
+                )
             else:
                 shift_msa = None
                 shift_mlp = None
-                (scale_msa, gate_msa, scale_mlp, gate_mlp) = self.adaLN_modulation(c).chunk(4, dim=-1)
+                (scale_msa, gate_msa, scale_mlp, gate_mlp) = self.adaLN_modulation(
+                    c
+                ).chunk(4, dim=-1)
             qkv = self.attn.pre_attention(modulate(self.norm1(x), shift_msa, scale_msa))
             return qkv, (x, gate_msa, shift_mlp, scale_mlp, gate_mlp)
         else:
@@ -651,9 +693,17 @@ class SingleDiTBlock(nn.Module):
 
     def pre_attention_x(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
         assert self.x_block_self_attn
-        (shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp, shift_msa2, scale_msa2, gate_msa2) = self.adaLN_modulation(
-            c
-        ).chunk(9, dim=1)
+        (
+            shift_msa,
+            scale_msa,
+            gate_msa,
+            shift_mlp,
+            scale_mlp,
+            gate_mlp,
+            shift_msa2,
+            scale_msa2,
+            gate_msa2,
+        ) = self.adaLN_modulation(c).chunk(9, dim=1)
         x_norm = self.norm1(x)
         qkv = self.attn.pre_attention(modulate(x_norm, shift_msa, scale_msa))
         qkv2 = self.attn2.pre_attention(modulate(x_norm, shift_msa2, scale_msa2))
@@ -662,21 +712,40 @@ class SingleDiTBlock(nn.Module):
     def post_attention(self, attn, x, gate_msa, shift_mlp, scale_mlp, gate_mlp):
         assert not self.pre_only
         x = x + gate_msa.unsqueeze(1) * self.attn.post_attention(attn)
-        x = x + gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        x = x + gate_mlp.unsqueeze(1) * self.mlp(
+            modulate(self.norm2(x), shift_mlp, scale_mlp)
+        )
         return x
 
-    def post_attention_x(self, attn, attn2, x, gate_msa, shift_mlp, scale_mlp, gate_mlp, gate_msa2, attn1_dropout: float = 0.0):
+    def post_attention_x(
+        self,
+        attn,
+        attn2,
+        x,
+        gate_msa,
+        shift_mlp,
+        scale_mlp,
+        gate_mlp,
+        gate_msa2,
+        attn1_dropout: float = 0.0,
+    ):
         assert not self.pre_only
         if attn1_dropout > 0.0:
             # Use torch.bernoulli to implement dropout, only dropout the batch dimension
-            attn1_dropout = torch.bernoulli(torch.full((attn.size(0), 1, 1), 1 - attn1_dropout, device=attn.device))
-            attn_ = gate_msa.unsqueeze(1) * self.attn.post_attention(attn) * attn1_dropout
+            attn1_dropout = torch.bernoulli(
+                torch.full((attn.size(0), 1, 1), 1 - attn1_dropout, device=attn.device)
+            )
+            attn_ = (
+                gate_msa.unsqueeze(1) * self.attn.post_attention(attn) * attn1_dropout
+            )
         else:
             attn_ = gate_msa.unsqueeze(1) * self.attn.post_attention(attn)
         x = x + attn_
         attn2_ = gate_msa2.unsqueeze(1) * self.attn2.post_attention(attn2)
         x = x + attn2_
-        mlp_ = gate_mlp.unsqueeze(1) * self.mlp(modulate(self.norm2(x), shift_mlp, scale_mlp))
+        mlp_ = gate_mlp.unsqueeze(1) * self.mlp(
+            modulate(self.norm2(x), shift_mlp, scale_mlp)
+        )
         x = x + mlp_
         return x
 
@@ -689,7 +758,9 @@ class MMDiTBlock(nn.Module):
         x_block_self_attn = kwargs.pop("x_block_self_attn")
 
         self.context_block = SingleDiTBlock(*args, pre_only=pre_only, **kwargs)
-        self.x_block = SingleDiTBlock(*args, pre_only=False, x_block_self_attn=x_block_self_attn, **kwargs)
+        self.x_block = SingleDiTBlock(
+            *args, pre_only=False, x_block_self_attn=x_block_self_attn, **kwargs
+        )
 
         self.head_dim = self.x_block.attn.head_dim
         self.mode = self.x_block.attn_mode
@@ -718,7 +789,9 @@ class MMDiTBlock(nn.Module):
 
         if self.x_block.x_block_self_attn:
             x_q2, x_k2, x_v2 = x_qkv2
-            attn2 = attention(x_q2, x_k2, x_v2, self.x_block.attn2.num_heads, mode=self.mode)
+            attn2 = attention(
+                x_q2, x_k2, x_v2, self.x_block.attn2.num_heads, mode=self.mode
+            )
             x = self.x_block.post_attention_x(x_attn_out, attn2, *x_intermediates)
         else:
             x = self.x_block.post_attention(x_attn_out, *x_intermediates)
@@ -818,13 +891,17 @@ class MMDiT(nn.Module):
             self.y_embedder = Embedder(adm_in_channels, self.hidden_size)
 
         if context_embedder_in_features is not None:
-            self.context_embedder = nn.Linear(context_embedder_in_features, context_embedder_out_features)
+            self.context_embedder = nn.Linear(
+                context_embedder_in_features, context_embedder_out_features
+            )
         else:
             self.context_embedder = nn.Identity()
 
         self.register_length = register_length
         if self.register_length > 0:
-            self.register = nn.Parameter(torch.randn(1, register_length, self.hidden_size))
+            self.register = nn.Parameter(
+                torch.randn(1, register_length, self.hidden_size)
+            )
 
         # num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -866,7 +943,9 @@ class MMDiT(nn.Module):
         self.offloader = None
         self.num_blocks = len(self.joint_blocks)
 
-    def enable_scaled_pos_embed(self, use_scaled_pos_embed: bool, latent_sizes: Optional[list[int]]):
+    def enable_scaled_pos_embed(
+        self, use_scaled_pos_embed: bool, latent_sizes: Optional[list[int]]
+    ):
         self.use_scaled_pos_embed = use_scaled_pos_embed
 
         if self.use_scaled_pos_embed:
@@ -879,7 +958,9 @@ class MMDiT(nn.Module):
             latent_sizes = list(set(latent_sizes))
             latent_sizes = sorted(latent_sizes)
 
-            patched_sizes = [latent_size // self.patch_size for latent_size in latent_sizes]
+            patched_sizes = [
+                latent_size // self.patch_size for latent_size in latent_sizes
+            ]
 
             # calculate value range for each latent area: this is used to determine the pos_emb size from the latent shape
             max_areas = []
@@ -892,12 +973,17 @@ class MMDiT(nn.Module):
             max_areas.append(int((patched_sizes[-1] * MMDiT.POS_EMBED_MAX_RATIO) ** 2))
             # print("max_areas", max_areas)
 
-            self.resolution_area_to_latent_size = [(area, latent_size) for area, latent_size in zip(max_areas, patched_sizes)]
+            self.resolution_area_to_latent_size = [
+                (area, latent_size)
+                for area, latent_size in zip(max_areas, patched_sizes)
+            ]
 
             self.resolution_pos_embeds = {}
             for patched_size in patched_sizes:
                 grid_size = int(patched_size * MMDiT.POS_EMBED_MAX_RATIO)
-                pos_embed = get_scaled_2d_sincos_pos_embed(self.hidden_size, grid_size, sample_size=patched_size)
+                pos_embed = get_scaled_2d_sincos_pos_embed(
+                    self.hidden_size, grid_size, sample_size=patched_size
+                )
                 pos_embed = torch.from_numpy(pos_embed).float().unsqueeze(0)
                 self.resolution_pos_embeds[patched_size] = pos_embed
                 # print(f"pos_embed for {patched_size}x{patched_size} latent size: {pos_embed.shape}")
@@ -1002,10 +1088,14 @@ class MMDiT(nn.Module):
             self.pos_embed.shape[-1],
         )
         spatial_pos_embed = spatial_pos_embed[:, top : top + h, left : left + w, :]
-        spatial_pos_embed = spatial_pos_embed.reshape(1, -1, spatial_pos_embed.shape[-1])
+        spatial_pos_embed = spatial_pos_embed.reshape(
+            1, -1, spatial_pos_embed.shape[-1]
+        )
         return spatial_pos_embed
 
-    def cropped_scaled_pos_embed(self, h, w, device=None, dtype=None, random_crop: bool = False):
+    def cropped_scaled_pos_embed(
+        self, h, w, device=None, dtype=None, random_crop: bool = False
+    ):
         p = self.x_embedder.patch_size
         # patched size
         h = (h + 1) // p
@@ -1024,7 +1114,9 @@ class MMDiT(nn.Module):
             patched_size = self.resolution_area_to_latent_size[-1][1]
 
         pos_embed = self.resolution_pos_embeds[patched_size]
-        pos_embed_size = round(math.sqrt(pos_embed.shape[1]))  # max size, patched_size * POS_EMBED_MAX_RATIO
+        pos_embed_size = round(
+            math.sqrt(pos_embed.shape[1])
+        )  # max size, patched_size * POS_EMBED_MAX_RATIO
         if h > pos_embed_size or w > pos_embed_size:
             # # fallback to normal pos_embed
             # return self.cropped_pos_embed(h * p, w * p, device=device, random_crop=random_crop)
@@ -1035,7 +1127,9 @@ class MMDiT(nn.Module):
             patched_size = max(h, w)
             grid_size = int(patched_size * MMDiT.POS_EMBED_MAX_RATIO)
             pos_embed_size = grid_size
-            pos_embed = get_scaled_2d_sincos_pos_embed(self.hidden_size, grid_size, sample_size=patched_size)
+            pos_embed = get_scaled_2d_sincos_pos_embed(
+                self.hidden_size, grid_size, sample_size=patched_size
+            )
             pos_embed = torch.from_numpy(pos_embed).float().unsqueeze(0)
             self.resolution_pos_embeds[patched_size] = pos_embed
             logger.info(f"Added pos_embed for size {patched_size}x{patched_size}")
@@ -1047,7 +1141,9 @@ class MMDiT(nn.Module):
             # insert to resolution_area_to_latent_size, by adding and sorting
             area = pos_embed_size**2
             self.resolution_area_to_latent_size.append((area, patched_size))
-            self.resolution_area_to_latent_size = sorted(self.resolution_area_to_latent_size)
+            self.resolution_area_to_latent_size = sorted(
+                self.resolution_area_to_latent_size
+            )
 
         if not random_crop:
             top = (pos_embed_size - h) // 2
@@ -1064,9 +1160,13 @@ class MMDiT(nn.Module):
             pos_embed = pos_embed.to(dtype)
             self.resolution_pos_embeds[patched_size] = pos_embed  # update dtype
 
-        spatial_pos_embed = pos_embed.reshape(1, pos_embed_size, pos_embed_size, pos_embed.shape[-1])
+        spatial_pos_embed = pos_embed.reshape(
+            1, pos_embed_size, pos_embed_size, pos_embed.shape[-1]
+        )
         spatial_pos_embed = spatial_pos_embed[:, top : top + h, left : left + w, :]
-        spatial_pos_embed = spatial_pos_embed.reshape(1, -1, spatial_pos_embed.shape[-1])
+        spatial_pos_embed = spatial_pos_embed.reshape(
+            1, -1, spatial_pos_embed.shape[-1]
+        )
         # print(
         #     f"patched size: {h}x{w}, pos_embed size: {pos_embed_size}, pos_embed shape: {pos_embed.shape}, top: {top}, left: {left}"
         # )
@@ -1080,9 +1180,14 @@ class MMDiT(nn.Module):
         ), f"Cannot swap more than {self.num_blocks - 2} blocks. Requested: {self.blocks_to_swap} blocks."
 
         self.offloader = custom_offloading_utils.ModelOffloader(
-            self.joint_blocks, self.num_blocks, self.blocks_to_swap, device  # , debug=True
+            self.joint_blocks,
+            self.num_blocks,
+            self.blocks_to_swap,
+            device,  # , debug=True
         )
-        print(f"SD3: Block swap enabled. Swapping {num_blocks} blocks, total blocks: {self.num_blocks}, device: {device}.")
+        print(
+            f"SD3: Block swap enabled. Swapping {num_blocks} blocks, total blocks: {self.num_blocks}, device: {device}."
+        )
 
     def move_to_device_except_swap_blocks(self, device: torch.device):
         # assume model is on cpu. do not move blocks to device to reduce temporary memory usage
@@ -1114,17 +1219,23 @@ class MMDiT(nn.Module):
         y: (N, D) tensor of class labels
         """
         pos_emb_random_crop = (
-            False if self.pos_emb_random_crop_rate == 0.0 else torch.rand(1).item() < self.pos_emb_random_crop_rate
+            False
+            if self.pos_emb_random_crop_rate == 0.0
+            else torch.rand(1).item() < self.pos_emb_random_crop_rate
         )
 
         B, C, H, W = x.shape
 
         # x = self.x_embedder(x) + self.cropped_pos_embed(H, W, device=x.device, random_crop=pos_emb_random_crop).to(dtype=x.dtype)
         if not self.use_scaled_pos_embed:
-            pos_embed = self.cropped_pos_embed(H, W, device=x.device, random_crop=pos_emb_random_crop).to(dtype=x.dtype)
+            pos_embed = self.cropped_pos_embed(
+                H, W, device=x.device, random_crop=pos_emb_random_crop
+            ).to(dtype=x.dtype)
         else:
             # print(f"Using scaled pos_embed for size {H}x{W}")
-            pos_embed = self.cropped_scaled_pos_embed(H, W, device=x.device, dtype=x.dtype, random_crop=pos_emb_random_crop)
+            pos_embed = self.cropped_scaled_pos_embed(
+                H, W, device=x.device, dtype=x.dtype, random_crop=pos_emb_random_crop
+            )
         x = self.x_embedder(x) + pos_embed
         del pos_embed
 
@@ -1138,7 +1249,11 @@ class MMDiT(nn.Module):
 
         if self.register_length > 0:
             context = torch.cat(
-                (einops.repeat(self.register, "1 ... -> b ...", b=x.shape[0]), default(context, torch.Tensor([]).type_as(x))), 1
+                (
+                    einops.repeat(self.register, "1 ... -> b ...", b=x.shape[0]),
+                    default(context, torch.Tensor([]).type_as(x)),
+                ),
+                1,
             )
 
         if not self.blocks_to_swap:
@@ -1185,23 +1300,54 @@ VAE_SHIFT_FACTOR = 0.0609
 
 
 def Normalize(in_channels, num_groups=32, dtype=torch.float32, device=None):
-    return torch.nn.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=1e-6, affine=True, dtype=dtype, device=device)
+    return torch.nn.GroupNorm(
+        num_groups=num_groups,
+        num_channels=in_channels,
+        eps=1e-6,
+        affine=True,
+        dtype=dtype,
+        device=device,
+    )
 
 
 class ResnetBlock(torch.nn.Module):
-    def __init__(self, *, in_channels, out_channels=None, dtype=torch.float32, device=None):
+    def __init__(
+        self, *, in_channels, out_channels=None, dtype=torch.float32, device=None
+    ):
         super().__init__()
         self.in_channels = in_channels
         out_channels = in_channels if out_channels is None else out_channels
         self.out_channels = out_channels
 
         self.norm1 = Normalize(in_channels, dtype=dtype, device=device)
-        self.conv1 = torch.nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv1 = torch.nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
         self.norm2 = Normalize(out_channels, dtype=dtype, device=device)
-        self.conv2 = torch.nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv2 = torch.nn.Conv2d(
+            out_channels,
+            out_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
         if self.in_channels != self.out_channels:
             self.nin_shortcut = torch.nn.Conv2d(
-                in_channels, out_channels, kernel_size=1, stride=1, padding=0, dtype=dtype, device=device
+                in_channels,
+                out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                dtype=dtype,
+                device=device,
             )
         else:
             self.nin_shortcut = None
@@ -1224,10 +1370,42 @@ class AttnBlock(torch.nn.Module):
     def __init__(self, in_channels, dtype=torch.float32, device=None):
         super().__init__()
         self.norm = Normalize(in_channels, dtype=dtype, device=device)
-        self.q = torch.nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0, dtype=dtype, device=device)
-        self.k = torch.nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0, dtype=dtype, device=device)
-        self.v = torch.nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0, dtype=dtype, device=device)
-        self.proj_out = torch.nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1, padding=0, dtype=dtype, device=device)
+        self.q = torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dtype=dtype,
+            device=device,
+        )
+        self.k = torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dtype=dtype,
+            device=device,
+        )
+        self.v = torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dtype=dtype,
+            device=device,
+        )
+        self.proj_out = torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=1,
+            stride=1,
+            padding=0,
+            dtype=dtype,
+            device=device,
+        )
 
     def forward(self, x):
         hidden = self.norm(x)
@@ -1235,8 +1413,13 @@ class AttnBlock(torch.nn.Module):
         k = self.k(hidden)
         v = self.v(hidden)
         b, c, h, w = q.shape
-        q, k, v = map(lambda x: einops.rearrange(x, "b c h w -> b 1 (h w) c").contiguous(), (q, k, v))
-        hidden = torch.nn.functional.scaled_dot_product_attention(q, k, v)  # scale is dim ** -0.5 per default
+        q, k, v = map(
+            lambda x: einops.rearrange(x, "b c h w -> b 1 (h w) c").contiguous(),
+            (q, k, v),
+        )
+        hidden = torch.nn.functional.scaled_dot_product_attention(
+            q, k, v
+        )  # scale is dim ** -0.5 per default
         hidden = einops.rearrange(hidden, "b 1 (h w) c -> b c h w", h=h, w=w, c=c, b=b)
         hidden = self.proj_out(hidden)
         return x + hidden
@@ -1245,7 +1428,15 @@ class AttnBlock(torch.nn.Module):
 class Downsample(torch.nn.Module):
     def __init__(self, in_channels, dtype=torch.float32, device=None):
         super().__init__()
-        self.conv = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=2, padding=0, dtype=dtype, device=device)
+        self.conv = torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=3,
+            stride=2,
+            padding=0,
+            dtype=dtype,
+            device=device,
+        )
 
     def forward(self, x):
         pad = (0, 1, 0, 1)
@@ -1257,7 +1448,15 @@ class Downsample(torch.nn.Module):
 class Upsample(torch.nn.Module):
     def __init__(self, in_channels, dtype=torch.float32, device=None):
         super().__init__()
-        self.conv = torch.nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv = torch.nn.Conv2d(
+            in_channels,
+            in_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
 
     def forward(self, x):
         org_dtype = x.dtype
@@ -1272,13 +1471,28 @@ class Upsample(torch.nn.Module):
 
 class VAEEncoder(torch.nn.Module):
     def __init__(
-        self, ch=128, ch_mult=(1, 2, 4, 4), num_res_blocks=2, in_channels=3, z_channels=16, dtype=torch.float32, device=None
+        self,
+        ch=128,
+        ch_mult=(1, 2, 4, 4),
+        num_res_blocks=2,
+        in_channels=3,
+        z_channels=16,
+        dtype=torch.float32,
+        device=None,
     ):
         super().__init__()
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
         # downsampling
-        self.conv_in = torch.nn.Conv2d(in_channels, ch, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv_in = torch.nn.Conv2d(
+            in_channels,
+            ch,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
         in_ch_mult = (1,) + tuple(ch_mult)
         self.in_ch_mult = in_ch_mult
         self.down = torch.nn.ModuleList()
@@ -1288,7 +1502,14 @@ class VAEEncoder(torch.nn.Module):
             block_in = ch * in_ch_mult[i_level]
             block_out = ch * ch_mult[i_level]
             for i_block in range(num_res_blocks):
-                block.append(ResnetBlock(in_channels=block_in, out_channels=block_out, dtype=dtype, device=device))
+                block.append(
+                    ResnetBlock(
+                        in_channels=block_in,
+                        out_channels=block_out,
+                        dtype=dtype,
+                        device=device,
+                    )
+                )
                 block_in = block_out
             down = torch.nn.Module()
             down.block = block
@@ -1298,12 +1519,24 @@ class VAEEncoder(torch.nn.Module):
             self.down.append(down)
         # middle
         self.mid = torch.nn.Module()
-        self.mid.block_1 = ResnetBlock(in_channels=block_in, out_channels=block_in, dtype=dtype, device=device)
+        self.mid.block_1 = ResnetBlock(
+            in_channels=block_in, out_channels=block_in, dtype=dtype, device=device
+        )
         self.mid.attn_1 = AttnBlock(block_in, dtype=dtype, device=device)
-        self.mid.block_2 = ResnetBlock(in_channels=block_in, out_channels=block_in, dtype=dtype, device=device)
+        self.mid.block_2 = ResnetBlock(
+            in_channels=block_in, out_channels=block_in, dtype=dtype, device=device
+        )
         # end
         self.norm_out = Normalize(block_in, dtype=dtype, device=device)
-        self.conv_out = torch.nn.Conv2d(block_in, 2 * z_channels, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv_out = torch.nn.Conv2d(
+            block_in,
+            2 * z_channels,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
         self.swish = torch.nn.SiLU(inplace=True)
 
     def forward(self, x):
@@ -1345,19 +1578,38 @@ class VAEDecoder(torch.nn.Module):
         block_in = ch * ch_mult[self.num_resolutions - 1]
         curr_res = resolution // 2 ** (self.num_resolutions - 1)
         # z to block_in
-        self.conv_in = torch.nn.Conv2d(z_channels, block_in, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv_in = torch.nn.Conv2d(
+            z_channels,
+            block_in,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
         # middle
         self.mid = torch.nn.Module()
-        self.mid.block_1 = ResnetBlock(in_channels=block_in, out_channels=block_in, dtype=dtype, device=device)
+        self.mid.block_1 = ResnetBlock(
+            in_channels=block_in, out_channels=block_in, dtype=dtype, device=device
+        )
         self.mid.attn_1 = AttnBlock(block_in, dtype=dtype, device=device)
-        self.mid.block_2 = ResnetBlock(in_channels=block_in, out_channels=block_in, dtype=dtype, device=device)
+        self.mid.block_2 = ResnetBlock(
+            in_channels=block_in, out_channels=block_in, dtype=dtype, device=device
+        )
         # upsampling
         self.up = torch.nn.ModuleList()
         for i_level in reversed(range(self.num_resolutions)):
             block = torch.nn.ModuleList()
             block_out = ch * ch_mult[i_level]
             for i_block in range(self.num_res_blocks + 1):
-                block.append(ResnetBlock(in_channels=block_in, out_channels=block_out, dtype=dtype, device=device))
+                block.append(
+                    ResnetBlock(
+                        in_channels=block_in,
+                        out_channels=block_out,
+                        dtype=dtype,
+                        device=device,
+                    )
+                )
                 block_in = block_out
             up = torch.nn.Module()
             up.block = block
@@ -1367,7 +1619,15 @@ class VAEDecoder(torch.nn.Module):
             self.up.insert(0, up)  # prepend to get consistent order
         # end
         self.norm_out = Normalize(block_in, dtype=dtype, device=device)
-        self.conv_out = torch.nn.Conv2d(block_in, out_ch, kernel_size=3, stride=1, padding=1, dtype=dtype, device=device)
+        self.conv_out = torch.nn.Conv2d(
+            block_in,
+            out_ch,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            dtype=dtype,
+            device=device,
+        )
         self.swish = torch.nn.SiLU(inplace=True)
 
     def forward(self, z):

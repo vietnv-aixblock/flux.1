@@ -5,11 +5,15 @@ import time
 from typing import Any, Dict, Union
 
 import torch
+from library.utils import (
+    MemoryEfficientSafeOpen,
+    mem_eff_save_file,
+    setup_logging,
+    str_to_dtype,
+)
 from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
-
-from library.utils import setup_logging, str_to_dtype, MemoryEfficientSafeOpen, mem_eff_save_file
 
 setup_logging()
 import logging
@@ -35,11 +39,20 @@ def load_state_dict(file_name, dtype):
     return sd, metadata
 
 
-def save_to_file(file_name, state_dict: Dict[str, Union[Any, torch.Tensor]], dtype, metadata, mem_eff_save=False):
+def save_to_file(
+    file_name,
+    state_dict: Dict[str, Union[Any, torch.Tensor]],
+    dtype,
+    metadata,
+    mem_eff_save=False,
+):
     if dtype is not None:
         logger.info(f"converting to {dtype}...")
         for key in tqdm(list(state_dict.keys())):
-            if type(state_dict[key]) == torch.Tensor and state_dict[key].dtype.is_floating_point:
+            if (
+                type(state_dict[key]) == torch.Tensor
+                and state_dict[key].dtype.is_floating_point
+            ):
                 state_dict[key] = state_dict[key].to(dtype)
 
     logger.info(f"saving to: {file_name}")
@@ -70,18 +83,28 @@ def merge_to_flux_model(
             for key in keys:
                 if key.endswith(".weight"):
                     module_name = ".".join(key.split(".")[:-1])
-                    lora_name = lora_flux.LoRANetwork.LORA_PREFIX_FLUX + "_" + module_name.replace(".", "_")
+                    lora_name = (
+                        lora_flux.LoRANetwork.LORA_PREFIX_FLUX
+                        + "_"
+                        + module_name.replace(".", "_")
+                    )
                     lora_name_to_module_key[lora_name] = key
 
     lora_name_to_clip_l_key = {}
     if clip_l_path is not None:
         logger.info(f"loading keys from clip_l model: {clip_l_path}")
-        with safe_open(clip_l_path, framework="pt", device=loading_device) as clip_l_file:
+        with safe_open(
+            clip_l_path, framework="pt", device=loading_device
+        ) as clip_l_file:
             keys = list(clip_l_file.keys())
             for key in keys:
                 if key.endswith(".weight"):
                     module_name = ".".join(key.split(".")[:-1])
-                    lora_name = lora_flux.LoRANetwork.LORA_PREFIX_TEXT_ENCODER_CLIP + "_" + module_name.replace(".", "_")
+                    lora_name = (
+                        lora_flux.LoRANetwork.LORA_PREFIX_TEXT_ENCODER_CLIP
+                        + "_"
+                        + module_name.replace(".", "_")
+                    )
                     lora_name_to_clip_l_key[lora_name] = key
 
     lora_name_to_t5xxl_key = {}
@@ -92,7 +115,11 @@ def merge_to_flux_model(
             for key in keys:
                 if key.endswith(".weight"):
                     module_name = ".".join(key.split(".")[:-1])
-                    lora_name = lora_flux.LoRANetwork.LORA_PREFIX_TEXT_ENCODER_T5 + "_" + module_name.replace(".", "_")
+                    lora_name = (
+                        lora_flux.LoRANetwork.LORA_PREFIX_TEXT_ENCODER_T5
+                        + "_"
+                        + module_name.replace(".", "_")
+                    )
                     lora_name_to_t5xxl_key[lora_name] = key
 
     flux_state_dict = {}
@@ -102,17 +129,23 @@ def merge_to_flux_model(
         if flux_path is not None:
             with MemoryEfficientSafeOpen(flux_path) as flux_file:
                 for key in tqdm(flux_file.keys()):
-                    flux_state_dict[key] = flux_file.get_tensor(key).to(loading_device)  # dtype is not changed
+                    flux_state_dict[key] = flux_file.get_tensor(key).to(
+                        loading_device
+                    )  # dtype is not changed
 
         if clip_l_path is not None:
             with MemoryEfficientSafeOpen(clip_l_path) as clip_l_file:
                 for key in tqdm(clip_l_file.keys()):
-                    clip_l_state_dict[key] = clip_l_file.get_tensor(key).to(loading_device)
+                    clip_l_state_dict[key] = clip_l_file.get_tensor(key).to(
+                        loading_device
+                    )
 
         if t5xxl_path is not None:
             with MemoryEfficientSafeOpen(t5xxl_path) as t5xxl_file:
                 for key in tqdm(t5xxl_file.keys()):
-                    t5xxl_state_dict[key] = t5xxl_file.get_tensor(key).to(loading_device)
+                    t5xxl_state_dict[key] = t5xxl_file.get_tensor(key).to(
+                        loading_device
+                    )
     else:
         if flux_path is not None:
             flux_state_dict = load_file(flux_path, device=loading_device)
@@ -171,12 +204,19 @@ def merge_to_flux_model(
                     weight = (
                         weight
                         + ratio
-                        * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)).unsqueeze(2).unsqueeze(3)
+                        * (
+                            up_weight.squeeze(3).squeeze(2)
+                            @ down_weight.squeeze(3).squeeze(2)
+                        )
+                        .unsqueeze(2)
+                        .unsqueeze(3)
                         * scale
                     )
                 else:
                     # conv2d 3x3
-                    conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
+                    conved = torch.nn.functional.conv2d(
+                        down_weight.permute(1, 0, 2, 3), up_weight
+                    ).permute(1, 0, 2, 3)
                     # logger.info(conved.size(), weight.size(), module.stride, module.padding)
                     weight = weight + ratio * conved * scale
 
@@ -192,14 +232,23 @@ def merge_to_flux_model(
 
 
 def merge_to_flux_model_diffusers(
-    loading_device, working_device, flux_model, models, ratios, merge_dtype, save_dtype, mem_eff_load_save=False
+    loading_device,
+    working_device,
+    flux_model,
+    models,
+    ratios,
+    merge_dtype,
+    save_dtype,
+    mem_eff_load_save=False,
 ):
     logger.info(f"loading keys from FLUX.1 model: {flux_model}")
     if mem_eff_load_save:
         flux_state_dict = {}
         with MemoryEfficientSafeOpen(flux_model) as flux_file:
             for key in tqdm(flux_file.keys()):
-                flux_state_dict[key] = flux_file.get_tensor(key).to(loading_device)  # dtype is not changed
+                flux_state_dict[key] = flux_file.get_tensor(key).to(
+                    loading_device
+                )  # dtype is not changed
     else:
         flux_state_dict = load_file(flux_model, device=loading_device)
 
@@ -272,7 +321,9 @@ def merge_to_flux_model_diffusers(
                 key_map[f"{prefix_from}.{k}"] = f"{prefix_to}.{v}"
 
         # add as-is keys
-        values = list([(v if isinstance(v, str) else v[0]) for v in set(key_map.values())])
+        values = list(
+            [(v if isinstance(v, str) else v[0]) for v in set(key_map.values())]
+        )
         values.sort()
         key_map.update({v: v for v in values})
 
@@ -351,9 +402,14 @@ def merge_to_flux_model_diffusers(
         logger.info("merging...")
         for key in lora_sd.keys():
             if "lora_down" in key or "lora_A" in key:
-                lora_name = key[: key.rfind(".lora_down" if "lora_down" in key else ".lora_A")]
+                lora_name = key[
+                    : key.rfind(".lora_down" if "lora_down" in key else ".lora_A")
+                ]
                 up_key = key.replace("lora_down", "lora_up").replace("lora_A", "lora_B")
-                alpha_key = key[: key.index("lora_down" if "lora_down" in key else "lora_A")] + "alpha"
+                alpha_key = (
+                    key[: key.index("lora_down" if "lora_down" in key else "lora_A")]
+                    + "alpha"
+                )
 
                 logger.info(f"Processing LoRA key: {lora_name}")
                 flux_key = find_matching_key(flux_state_dict, lora_name)
@@ -380,7 +436,9 @@ def merge_to_flux_model_diffusers(
                 # print(up_weight.size(), down_weight.size(), weight.size())
 
                 if lora_name.startswith("transformer."):
-                    if "qkv" in flux_key or "linear1" in flux_key:  # combined qkv or qkv+mlp
+                    if (
+                        "qkv" in flux_key or "linear1" in flux_key
+                    ):  # combined qkv or qkv+mlp
                         update = ratio * (up_weight @ down_weight) * scale
                         # print(update.shape)
 
@@ -394,7 +452,9 @@ def merge_to_flux_model_diffusers(
                                 v += update.reshape(v.shape)
                             weight = torch.cat([q, k, v], dim=0)
                         elif "linear1" in flux_key:
-                            q, k, v = torch.chunk(weight[: int(update.shape[-1] * 3)], 3, dim=0)
+                            q, k, v = torch.chunk(
+                                weight[: int(update.shape[-1] * 3)], 3, dim=0
+                            )
                             mlp = weight[int(update.shape[-1] * 3) :]
                             # print(q.shape, k.shape, v.shape, mlp.shape)
                             if "to_q" in lora_name:
@@ -413,11 +473,18 @@ def merge_to_flux_model_diffusers(
                             weight = (
                                 weight
                                 + ratio
-                                * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)).unsqueeze(2).unsqueeze(3)
+                                * (
+                                    up_weight.squeeze(3).squeeze(2)
+                                    @ down_weight.squeeze(3).squeeze(2)
+                                )
+                                .unsqueeze(2)
+                                .unsqueeze(3)
                                 * scale
                             )
                         else:
-                            conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
+                            conved = torch.nn.functional.conv2d(
+                                down_weight.permute(1, 0, 2, 3), up_weight
+                            ).permute(1, 0, 2, 3)
                             weight = weight + ratio * conved * scale
                 else:
                     if len(weight.size()) == 2:
@@ -426,11 +493,18 @@ def merge_to_flux_model_diffusers(
                         weight = (
                             weight
                             + ratio
-                            * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)).unsqueeze(2).unsqueeze(3)
+                            * (
+                                up_weight.squeeze(3).squeeze(2)
+                                @ down_weight.squeeze(3).squeeze(2)
+                            )
+                            .unsqueeze(2)
+                            .unsqueeze(3)
                             * scale
                         )
                     else:
-                        conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
+                        conved = torch.nn.functional.conv2d(
+                            down_weight.permute(1, 0, 2, 3), up_weight
+                        ).permute(1, 0, 2, 3)
                         weight = weight + ratio * conved * scale
 
                 flux_state_dict[flux_key] = weight.to(loading_device, save_dtype)
@@ -455,7 +529,9 @@ def merge_lora_models(models, ratios, merge_dtype, concat=False, shuffle=False):
 
         if lora_metadata is not None:
             if base_model is None:
-                base_model = lora_metadata.get(train_util.SS_METADATA_KEY_BASE_MODEL_VERSION, None)
+                base_model = lora_metadata.get(
+                    train_util.SS_METADATA_KEY_BASE_MODEL_VERSION, None
+                )
 
         # get alpha and dim
         alphas = {}  # alpha for current model
@@ -481,7 +557,9 @@ def merge_lora_models(models, ratios, merge_dtype, concat=False, shuffle=False):
                 if lora_module_name not in base_alphas:
                     base_alphas[lora_module_name] = alpha
 
-        logger.info(f"dim: {list(set(dims.values()))}, alpha: {list(set(alphas.values()))}")
+        logger.info(
+            f"dim: {list(set(dims.values()))}, alpha: {list(set(alphas.values()))}"
+        )
 
         # merge
         logger.info("merging...")
@@ -502,14 +580,19 @@ def merge_lora_models(models, ratios, merge_dtype, concat=False, shuffle=False):
             alpha = alphas[lora_module_name]
 
             scale = math.sqrt(alpha / base_alpha) * ratio
-            scale = abs(scale) if "lora_up" in key else scale  # マイナスの重みに対応する。
+            scale = (
+                abs(scale) if "lora_up" in key else scale
+            )  # マイナスの重みに対応する。
 
             if key in merged_sd:
                 assert (
-                    merged_sd[key].size() == lora_sd[key].size() or concat_dim is not None
+                    merged_sd[key].size() == lora_sd[key].size()
+                    or concat_dim is not None
                 ), "weights shape mismatch, different dims? / 重みのサイズが合いません。dimが異なる可能性があります。"
                 if concat_dim is not None:
-                    merged_sd[key] = torch.cat([merged_sd[key], lora_sd[key] * scale], dim=concat_dim)
+                    merged_sd[key] = torch.cat(
+                        [merged_sd[key], lora_sd[key] * scale], dim=concat_dim
+                    )
                 else:
                     merged_sd[key] = merged_sd[key] + lora_sd[key] * scale
             else:
@@ -528,7 +611,9 @@ def merge_lora_models(models, ratios, merge_dtype, concat=False, shuffle=False):
             merged_sd[key_up] = merged_sd[key_up][:, perm]
 
     logger.info("merged model")
-    logger.info(f"dim: {list(set(base_dims.values()))}, alpha: {list(set(base_alphas.values()))}")
+    logger.info(
+        f"dim: {list(set(base_dims.values()))}, alpha: {list(set(base_alphas.values()))}"
+    )
 
     # check all dims are same
     dims_list = list(set(base_dims.values()))
@@ -547,7 +632,9 @@ def merge_lora_models(models, ratios, merge_dtype, concat=False, shuffle=False):
     # build minimum metadata
     dims = f"{dims_list[0]}" if all_same_dims else "Dynamic"
     alphas = f"{alphas_list[0]}" if all_same_alphas else "Dynamic"
-    metadata = train_util.build_minimum_network_metadata(str(False), base_model, "networks.lora", dims, alphas, None)
+    metadata = train_util.build_minimum_network_metadata(
+        str(False), base_model, "networks.lora", dims, alphas, None
+    )
 
     return merged_sd, metadata
 
@@ -570,7 +657,9 @@ def merge(args):
     assert (
         args.save_to or args.clip_l_save_to or args.t5xxl_save_to
     ), "save_to or clip_l_save_to or t5xxl_save_to must be specified / save_toまたはclip_l_save_toまたはt5xxl_save_toを指定してください"
-    dest_dir = os.path.dirname(args.save_to or args.clip_l_save_to or args.t5xxl_save_to)
+    dest_dir = os.path.dirname(
+        args.save_to or args.clip_l_save_to or args.t5xxl_save_to
+    )
     if not os.path.exists(dest_dir):
         logger.info(f"creating directory: {dest_dir}")
         os.makedirs(dest_dir)
@@ -615,30 +704,63 @@ def merge(args):
         if args.no_metadata or (flux_state_dict is None or len(flux_state_dict) == 0):
             sai_metadata = None
         else:
-            merged_from = sai_model_spec.build_merged_from([args.flux_model] + args.models)
+            merged_from = sai_model_spec.build_merged_from(
+                [args.flux_model] + args.models
+            )
             title = os.path.splitext(os.path.basename(args.save_to))[0]
             sai_metadata = sai_model_spec.build_metadata(
-                None, False, False, False, False, False, time.time(), title=title, merged_from=merged_from, flux="dev"
+                None,
+                False,
+                False,
+                False,
+                False,
+                False,
+                time.time(),
+                title=title,
+                merged_from=merged_from,
+                flux="dev",
             )
 
         if flux_state_dict is not None and len(flux_state_dict) > 0:
             logger.info(f"saving FLUX model to: {args.save_to}")
-            save_to_file(args.save_to, flux_state_dict, save_dtype, sai_metadata, args.mem_eff_load_save)
+            save_to_file(
+                args.save_to,
+                flux_state_dict,
+                save_dtype,
+                sai_metadata,
+                args.mem_eff_load_save,
+            )
 
         if clip_l_state_dict is not None and len(clip_l_state_dict) > 0:
             logger.info(f"saving clip_l model to: {args.clip_l_save_to}")
-            save_to_file(args.clip_l_save_to, clip_l_state_dict, save_dtype, None, args.mem_eff_load_save)
+            save_to_file(
+                args.clip_l_save_to,
+                clip_l_state_dict,
+                save_dtype,
+                None,
+                args.mem_eff_load_save,
+            )
 
         if t5xxl_state_dict is not None and len(t5xxl_state_dict) > 0:
             logger.info(f"saving t5xxl model to: {args.t5xxl_save_to}")
-            save_to_file(args.t5xxl_save_to, t5xxl_state_dict, save_dtype, None, args.mem_eff_load_save)
+            save_to_file(
+                args.t5xxl_save_to,
+                t5xxl_state_dict,
+                save_dtype,
+                None,
+                args.mem_eff_load_save,
+            )
 
     else:
-        flux_state_dict, metadata = merge_lora_models(args.models, args.ratios, merge_dtype, args.concat, args.shuffle)
+        flux_state_dict, metadata = merge_lora_models(
+            args.models, args.ratios, merge_dtype, args.concat, args.shuffle
+        )
 
         logger.info("calculating hashes and creating metadata...")
 
-        model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(flux_state_dict, metadata)
+        model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+            flux_state_dict, metadata
+        )
         metadata["sshs_model_hash"] = model_hash
         metadata["sshs_legacy_hash"] = legacy_hash
 
@@ -646,7 +768,16 @@ def merge(args):
             merged_from = sai_model_spec.build_merged_from(args.models)
             title = os.path.splitext(os.path.basename(args.save_to))[0]
             sai_metadata = sai_model_spec.build_metadata(
-                flux_state_dict, False, False, False, True, False, time.time(), title=title, merged_from=merged_from, flux="dev"
+                flux_state_dict,
+                False,
+                False,
+                False,
+                True,
+                False,
+                time.time(),
+                title=title,
+                merged_from=merged_from,
+                flux="dev",
             )
             metadata.update(sai_metadata)
 
@@ -731,7 +862,12 @@ def setup_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="LoRA models to merge: safetensors file / マージするLoRAモデル、safetensorsファイル",
     )
-    parser.add_argument("--ratios", type=float, nargs="*", help="ratios for each model / それぞれのLoRAモデルの比率")
+    parser.add_argument(
+        "--ratios",
+        type=float,
+        nargs="*",
+        help="ratios for each model / それぞれのLoRAモデルの比率",
+    )
     parser.add_argument(
         "--no_metadata",
         action="store_true",

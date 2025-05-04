@@ -1,10 +1,12 @@
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-import torch
 import argparse
 import random
 import re
-from torch.types import Number
 from typing import List, Optional, Union
+
+import torch
+from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+from torch.types import Number
+
 from .utils import setup_logging
 
 setup_logging()
@@ -65,7 +67,13 @@ def fix_noise_scheduler_betas_for_zero_terminal_snr(noise_scheduler):
     noise_scheduler.alphas_cumprod = alphas_cumprod
 
 
-def apply_snr_weight(loss: torch.Tensor, timesteps: torch.IntTensor, noise_scheduler: DDPMScheduler, gamma: Number, v_prediction=False):
+def apply_snr_weight(
+    loss: torch.Tensor,
+    timesteps: torch.IntTensor,
+    noise_scheduler: DDPMScheduler,
+    gamma: Number,
+    v_prediction=False,
+):
     snr = torch.stack([noise_scheduler.all_snr[t] for t in timesteps])
     min_snr_gamma = torch.minimum(snr, torch.full_like(snr, gamma))
     if v_prediction:
@@ -76,7 +84,9 @@ def apply_snr_weight(loss: torch.Tensor, timesteps: torch.IntTensor, noise_sched
     return loss
 
 
-def scale_v_prediction_loss_like_noise_prediction(loss: torch.Tensor, timesteps: torch.IntTensor, noise_scheduler: DDPMScheduler):
+def scale_v_prediction_loss_like_noise_prediction(
+    loss: torch.Tensor, timesteps: torch.IntTensor, noise_scheduler: DDPMScheduler
+):
     scale = get_snr_scale(timesteps, noise_scheduler)
     loss = loss * scale
     return loss
@@ -84,23 +94,37 @@ def scale_v_prediction_loss_like_noise_prediction(loss: torch.Tensor, timesteps:
 
 def get_snr_scale(timesteps: torch.IntTensor, noise_scheduler: DDPMScheduler):
     snr_t = torch.stack([noise_scheduler.all_snr[t] for t in timesteps])  # batch_size
-    snr_t = torch.minimum(snr_t, torch.ones_like(snr_t) * 1000)  # if timestep is 0, snr_t is inf, so limit it to 1000
+    snr_t = torch.minimum(
+        snr_t, torch.ones_like(snr_t) * 1000
+    )  # if timestep is 0, snr_t is inf, so limit it to 1000
     scale = snr_t / (snr_t + 1)
     # # show debug info
     # logger.info(f"timesteps: {timesteps}, snr_t: {snr_t}, scale: {scale}")
     return scale
 
 
-def add_v_prediction_like_loss(loss: torch.Tensor, timesteps: torch.IntTensor, noise_scheduler: DDPMScheduler, v_pred_like_loss: torch.Tensor):
+def add_v_prediction_like_loss(
+    loss: torch.Tensor,
+    timesteps: torch.IntTensor,
+    noise_scheduler: DDPMScheduler,
+    v_pred_like_loss: torch.Tensor,
+):
     scale = get_snr_scale(timesteps, noise_scheduler)
     # logger.info(f"add v-prediction like loss: {v_pred_like_loss}, scale: {scale}, loss: {loss}, time: {timesteps}")
     loss = loss + loss / scale * v_pred_like_loss
     return loss
 
 
-def apply_debiased_estimation(loss: torch.Tensor, timesteps: torch.IntTensor, noise_scheduler: DDPMScheduler, v_prediction=False):
+def apply_debiased_estimation(
+    loss: torch.Tensor,
+    timesteps: torch.IntTensor,
+    noise_scheduler: DDPMScheduler,
+    v_prediction=False,
+):
     snr_t = torch.stack([noise_scheduler.all_snr[t] for t in timesteps])  # batch_size
-    snr_t = torch.minimum(snr_t, torch.ones_like(snr_t) * 1000)  # if timestep is 0, snr_t is inf, so limit it to 1000
+    snr_t = torch.minimum(
+        snr_t, torch.ones_like(snr_t) * 1000
+    )  # if timestep is 0, snr_t is inf, so limit it to 1000
     if v_prediction:
         weight = 1 / (snr_t + 1)
     else:
@@ -112,7 +136,9 @@ def apply_debiased_estimation(loss: torch.Tensor, timesteps: torch.IntTensor, no
 # TODO train_utilと分散しているのでどちらかに寄せる
 
 
-def add_custom_train_arguments(parser: argparse.ArgumentParser, support_weighted_captions: bool = True):
+def add_custom_train_arguments(
+    parser: argparse.ArgumentParser, support_weighted_captions: bool = True
+):
     parser.add_argument(
         "--min_snr_gamma",
         type=float,
@@ -281,16 +307,22 @@ def get_prompts_with_weights(tokenizer, prompt: List[str], max_length: int):
         tokens.append(text_token)
         weights.append(text_weight)
     if truncated:
-        logger.warning("Prompt was truncated. Try to shorten the prompt or increase max_embeddings_multiples")
+        logger.warning(
+            "Prompt was truncated. Try to shorten the prompt or increase max_embeddings_multiples"
+        )
     return tokens, weights
 
 
-def pad_tokens_and_weights(tokens, weights, max_length, bos, eos, no_boseos_middle=True, chunk_length=77):
+def pad_tokens_and_weights(
+    tokens, weights, max_length, bos, eos, no_boseos_middle=True, chunk_length=77
+):
     r"""
     Pad the tokens (with starting and ending tokens) and weights (with 1.0) to max_length.
     """
     max_embeddings_multiples = (max_length - 2) // (chunk_length - 2)
-    weights_length = max_length if no_boseos_middle else max_embeddings_multiples * chunk_length
+    weights_length = (
+        max_length if no_boseos_middle else max_embeddings_multiples * chunk_length
+    )
     for i in range(len(tokens)):
         tokens[i] = [bos] + tokens[i] + [eos] * (max_length - 1 - len(tokens[i]))
         if no_boseos_middle:
@@ -302,7 +334,12 @@ def pad_tokens_and_weights(tokens, weights, max_length, bos, eos, no_boseos_midd
             else:
                 for j in range(max_embeddings_multiples):
                     w.append(1.0)  # weight for starting token in this chunk
-                    w += weights[i][j * (chunk_length - 2) : min(len(weights[i]), (j + 1) * (chunk_length - 2))]
+                    w += weights[i][
+                        j
+                        * (chunk_length - 2) : min(
+                            len(weights[i]), (j + 1) * (chunk_length - 2)
+                        )
+                    ]
                     w.append(1.0)  # weight for ending token in this chunk
                 w += [1.0] * (weights_length - len(w))
             weights[i] = w[:]
@@ -329,7 +366,9 @@ def get_unweighted_text_embeddings(
         text_embeddings = []
         for i in range(max_embeddings_multiples):
             # extract the i-th chunk
-            text_input_chunk = text_input[:, i * (chunk_length - 2) : (i + 1) * (chunk_length - 2) + 2].clone()
+            text_input_chunk = text_input[
+                :, i * (chunk_length - 2) : (i + 1) * (chunk_length - 2) + 2
+            ].clone()
 
             # cover the head and the tail by the starting and the ending tokens
             text_input_chunk[:, 0] = text_input[0, 0]
@@ -337,7 +376,10 @@ def get_unweighted_text_embeddings(
                 text_input_chunk[:, -1] = text_input[0, -1]
             else:  # v2
                 for j in range(len(text_input_chunk)):
-                    if text_input_chunk[j, -1] != eos and text_input_chunk[j, -1] != pad:  # 最後に普通の文字がある
+                    if (
+                        text_input_chunk[j, -1] != eos
+                        and text_input_chunk[j, -1] != pad
+                    ):  # 最後に普通の文字がある
                         text_input_chunk[j, -1] = eos
                     if text_input_chunk[j, 1] == pad:  # BOSだけであとはPAD
                         text_input_chunk[j, 1] = eos
@@ -345,9 +387,13 @@ def get_unweighted_text_embeddings(
             if clip_skip is None or clip_skip == 1:
                 text_embedding = text_encoder(text_input_chunk)[0]
             else:
-                enc_out = text_encoder(text_input_chunk, output_hidden_states=True, return_dict=True)
+                enc_out = text_encoder(
+                    text_input_chunk, output_hidden_states=True, return_dict=True
+                )
                 text_embedding = enc_out["hidden_states"][-clip_skip]
-                text_embedding = text_encoder.text_model.final_layer_norm(text_embedding)
+                text_embedding = text_encoder.text_model.final_layer_norm(
+                    text_embedding
+                )
 
             if no_boseos_middle:
                 if i == 0:
@@ -366,7 +412,9 @@ def get_unweighted_text_embeddings(
         if clip_skip is None or clip_skip == 1:
             text_embeddings = text_encoder(text_input)[0]
         else:
-            enc_out = text_encoder(text_input, output_hidden_states=True, return_dict=True)
+            enc_out = text_encoder(
+                text_input, output_hidden_states=True, return_dict=True
+            )
             text_embeddings = enc_out["hidden_states"][-clip_skip]
             text_embeddings = text_encoder.text_model.final_layer_norm(text_embeddings)
     return text_embeddings
@@ -405,7 +453,9 @@ def get_weighted_text_embeddings(
     if isinstance(prompt, str):
         prompt = [prompt]
 
-    prompt_tokens, prompt_weights = get_prompts_with_weights(tokenizer, prompt, max_length - 2)
+    prompt_tokens, prompt_weights = get_prompts_with_weights(
+        tokenizer, prompt, max_length - 2
+    )
 
     # round up the longest length of tokens to a multiple of (model_max_length - 2)
     max_length = max([len(token) for token in prompt_tokens])
@@ -443,20 +493,28 @@ def get_weighted_text_embeddings(
         pad,
         no_boseos_middle=no_boseos_middle,
     )
-    prompt_weights = torch.tensor(prompt_weights, dtype=text_embeddings.dtype, device=device)
+    prompt_weights = torch.tensor(
+        prompt_weights, dtype=text_embeddings.dtype, device=device
+    )
 
     # assign weights to the prompts and normalize in the sense of mean
-    previous_mean = text_embeddings.float().mean(axis=[-2, -1]).to(text_embeddings.dtype)
+    previous_mean = (
+        text_embeddings.float().mean(axis=[-2, -1]).to(text_embeddings.dtype)
+    )
     text_embeddings = text_embeddings * prompt_weights.unsqueeze(-1)
     current_mean = text_embeddings.float().mean(axis=[-2, -1]).to(text_embeddings.dtype)
-    text_embeddings = text_embeddings * (previous_mean / current_mean).unsqueeze(-1).unsqueeze(-1)
+    text_embeddings = text_embeddings * (previous_mean / current_mean).unsqueeze(
+        -1
+    ).unsqueeze(-1)
 
     return text_embeddings
 
 
 # https://wandb.ai/johnowhitaker/multires_noise/reports/Multi-Resolution-Noise-for-Diffusion-Model-Training--VmlldzozNjYyOTU2
 def pyramid_noise_like(noise, device, iterations=6, discount=0.4) -> torch.FloatTensor:
-    b, c, w, h = noise.shape  # EDIT: w and h get over-written, rename for a different variant!
+    b, c, w, h = (
+        noise.shape
+    )  # EDIT: w and h get over-written, rename for a different variant!
     u = torch.nn.Upsample(size=(w, h), mode="bilinear").to(device)
     for i in range(iterations):
         r = random.random() * 2 + 2  # Rather than always going 2x,
@@ -468,7 +526,9 @@ def pyramid_noise_like(noise, device, iterations=6, discount=0.4) -> torch.Float
 
 
 # https://www.crosslabs.org//blog/diffusion-with-offset-noise
-def apply_noise_offset(latents, noise, noise_offset, adaptive_noise_scale) -> torch.FloatTensor:
+def apply_noise_offset(
+    latents, noise, noise_offset, adaptive_noise_scale
+) -> torch.FloatTensor:
     if noise_offset is None:
         return noise
     if adaptive_noise_scale is not None:
@@ -478,27 +538,37 @@ def apply_noise_offset(latents, noise, noise_offset, adaptive_noise_scale) -> to
 
         # multiply adaptive noise scale to the mean value and add it to the noise offset
         noise_offset = noise_offset + adaptive_noise_scale * latent_mean
-        noise_offset = torch.clamp(noise_offset, 0.0, None)  # in case of adaptive noise scale is negative
+        noise_offset = torch.clamp(
+            noise_offset, 0.0, None
+        )  # in case of adaptive noise scale is negative
 
-    noise = noise + noise_offset * torch.randn((latents.shape[0], latents.shape[1], 1, 1), device=latents.device)
+    noise = noise + noise_offset * torch.randn(
+        (latents.shape[0], latents.shape[1], 1, 1), device=latents.device
+    )
     return noise
 
 
 def apply_masked_loss(loss, batch) -> torch.FloatTensor:
     if "conditioning_images" in batch:
         # conditioning image is -1 to 1. we need to convert it to 0 to 1
-        mask_image = batch["conditioning_images"].to(dtype=loss.dtype)[:, 0].unsqueeze(1)  # use R channel
+        mask_image = (
+            batch["conditioning_images"].to(dtype=loss.dtype)[:, 0].unsqueeze(1)
+        )  # use R channel
         mask_image = mask_image / 2 + 0.5
         # print(f"conditioning_image: {mask_image.shape}")
     elif "alpha_masks" in batch and batch["alpha_masks"] is not None:
         # alpha mask is 0 to 1
-        mask_image = batch["alpha_masks"].to(dtype=loss.dtype).unsqueeze(1) # add channel dimension
+        mask_image = (
+            batch["alpha_masks"].to(dtype=loss.dtype).unsqueeze(1)
+        )  # add channel dimension
         # print(f"mask_image: {mask_image.shape}, {mask_image.mean()}")
     else:
         return loss
 
     # resize to the same size as the loss
-    mask_image = torch.nn.functional.interpolate(mask_image, size=loss.shape[2:], mode="area")
+    mask_image = torch.nn.functional.interpolate(
+        mask_image, size=loss.shape[2:], mode="area"
+    )
     loss = loss * mask_image
     return loss
 

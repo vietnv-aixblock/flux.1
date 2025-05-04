@@ -2,23 +2,37 @@ import argparse
 import os
 
 import torch
+from library.utils import setup_logging
 from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 from tqdm import tqdm
-from library.utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
+
 
 def is_unet_key(key):
     # VAE or TextEncoder, the last one is for SDXL
-    return not ("first_stage_model" in key or "cond_stage_model" in key or "conditioner." in key)
+    return not (
+        "first_stage_model" in key or "cond_stage_model" in key or "conditioner." in key
+    )
 
 
 TEXT_ENCODER_KEY_REPLACEMENTS = [
-    ("cond_stage_model.transformer.embeddings.", "cond_stage_model.transformer.text_model.embeddings."),
-    ("cond_stage_model.transformer.encoder.", "cond_stage_model.transformer.text_model.encoder."),
-    ("cond_stage_model.transformer.final_layer_norm.", "cond_stage_model.transformer.text_model.final_layer_norm."),
+    (
+        "cond_stage_model.transformer.embeddings.",
+        "cond_stage_model.transformer.text_model.embeddings.",
+    ),
+    (
+        "cond_stage_model.transformer.encoder.",
+        "cond_stage_model.transformer.text_model.encoder.",
+    ),
+    (
+        "cond_stage_model.transformer.final_layer_norm.",
+        "cond_stage_model.transformer.text_model.final_layer_norm.",
+    ),
 ]
 
 
@@ -54,11 +68,15 @@ def merge(args):
             logger.info(f"Model {model} does not exist")
             exit()
 
-    assert args.ratios is None or len(args.models) == len(args.ratios), "ratios must be the same length as models"
+    assert args.ratios is None or len(args.models) == len(
+        args.ratios
+    ), "ratios must be the same length as models"
 
     # load and merge
     ratio = 1.0 / len(args.models)  # default
-    supplementary_key_ratios = {}  # [key] = ratio, for keys not in all models, add later
+    supplementary_key_ratios = (
+        {}
+    )  # [key] = ratio, for keys not in all models, add later
 
     merged_sd = None
     first_model_keys = set()  # check missing keys in other models
@@ -78,13 +96,18 @@ def merge(args):
                     first_model_keys.add(key)
 
                     if not is_unet_key(key) and args.unet_only:
-                        supplementary_key_ratios[key] = 1.0  # use first model's value for VAE or TextEncoder
+                        supplementary_key_ratios[key] = (
+                            1.0  # use first model's value for VAE or TextEncoder
+                        )
                         continue
 
                     value = ratio * value.to(dtype)  # first model's value * ratio
                     merged_sd[key] = value
 
-            logger.info(f"Model has {len(merged_sd)} keys " + ("(UNet only)" if args.unet_only else ""))
+            logger.info(
+                f"Model has {len(merged_sd)} keys "
+                + ("(UNet only)" if args.unet_only else "")
+            )
             continue
 
         # load other models
@@ -107,7 +130,9 @@ def merge(args):
             for key in merged_sd.keys():
                 if key in model_keys:
                     continue
-                logger.warning(f"Key {key} not in model {model}, use first model's value")
+                logger.warning(
+                    f"Key {key} not in model {model}, use first model's value"
+                )
                 if key in supplementary_key_ratios:
                     supplementary_key_ratios[key] += ratio
                 else:
@@ -123,14 +148,20 @@ def merge(args):
                     continue
 
                 if is_unet_key(new_key):  # not VAE or TextEncoder
-                    logger.warning(f"Key {new_key} not in all models, ratio = {supplementary_key_ratios[new_key]}")
+                    logger.warning(
+                        f"Key {new_key} not in all models, ratio = {supplementary_key_ratios[new_key]}"
+                    )
 
                 value = f.get_tensor(key)  # original key
 
                 if new_key not in merged_sd:
-                    merged_sd[new_key] = supplementary_key_ratios[new_key] * value.to(dtype)
+                    merged_sd[new_key] = supplementary_key_ratios[new_key] * value.to(
+                        dtype
+                    )
                 else:
-                    merged_sd[new_key] = merged_sd[new_key] + supplementary_key_ratios[new_key] * value.to(dtype)
+                    merged_sd[new_key] = merged_sd[new_key] + supplementary_key_ratios[
+                        new_key
+                    ] * value.to(dtype)
 
     # save
     output_file = args.output
@@ -152,11 +183,22 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Merge models")
     parser.add_argument("--models", nargs="+", type=str, help="Models to merge")
     parser.add_argument("--output", type=str, help="Output model")
-    parser.add_argument("--ratios", nargs="+", type=float, help="Ratios of models, default is equal, total = 1.0")
-    parser.add_argument("--unet_only", action="store_true", help="Only merge unet")
-    parser.add_argument("--device", type=str, default="cpu", help="Device to use, default is cpu")
     parser.add_argument(
-        "--precision", type=str, default="float", choices=["float", "fp16", "bf16"], help="Calculation precision, default is float"
+        "--ratios",
+        nargs="+",
+        type=float,
+        help="Ratios of models, default is equal, total = 1.0",
+    )
+    parser.add_argument("--unet_only", action="store_true", help="Only merge unet")
+    parser.add_argument(
+        "--device", type=str, default="cpu", help="Device to use, default is cpu"
+    )
+    parser.add_argument(
+        "--precision",
+        type=str,
+        default="float",
+        choices=["float", "fp16", "bf16"],
+        help="Calculation precision, default is float",
     )
     parser.add_argument(
         "--saving_precision",
@@ -165,7 +207,11 @@ if __name__ == "__main__":
         choices=["float", "fp16", "bf16"],
         help="Saving precision, default is float",
     )
-    parser.add_argument("--show_skipped", action="store_true", help="Show skipped keys (keys not in first model)")
+    parser.add_argument(
+        "--show_skipped",
+        action="store_true",
+        help="Show skipped keys (keys not in first model)",
+    )
 
     args = parser.parse_args()
     merge(args)

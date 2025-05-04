@@ -2,32 +2,28 @@
 
 import argparse
 import math
-from multiprocessing import Value
 import os
+from multiprocessing import Value
 
-from accelerate.utils import set_seed
 import torch
-from tqdm import tqdm
-
+from accelerate.utils import set_seed
+from cache_latents import set_tokenize_strategy
 from library import (
     config_util,
     flux_train_utils,
     flux_utils,
     sdxl_model_util,
+    sdxl_train_util,
     strategy_base,
     strategy_flux,
     strategy_sd,
     strategy_sdxl,
+    train_util,
+    utils,
 )
-from library import train_util
-from library import sdxl_train_util
-from library import utils
-from library.config_util import (
-    ConfigSanitizer,
-    BlueprintGenerator,
-)
-from library.utils import setup_logging, add_logging_arguments
-from cache_latents import set_tokenize_strategy
+from library.config_util import BlueprintGenerator, ConfigSanitizer
+from library.utils import add_logging_arguments, setup_logging
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -64,7 +60,9 @@ def cache_to_disk(args: argparse.Namespace) -> None:
     # データセットを準備する
     use_user_config = args.dataset_config is not None
     if args.dataset_class is None:
-        blueprint_generator = BlueprintGenerator(ConfigSanitizer(True, True, args.masked_loss, True))
+        blueprint_generator = BlueprintGenerator(
+            ConfigSanitizer(True, True, args.masked_loss, True)
+        )
         if use_user_config:
             logger.info(f"Loading dataset config from {args.dataset_config}")
             user_config = config_util.load_user_config(args.dataset_config)
@@ -103,7 +101,9 @@ def cache_to_disk(args: argparse.Namespace) -> None:
                 }
 
         blueprint = blueprint_generator.generate(user_config, args)
-        train_dataset_group, val_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        train_dataset_group, val_dataset_group = (
+            config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        )
     else:
         # use arbitrary dataset class
         train_dataset_group = train_util.load_arbitrary_dataset(args)
@@ -122,19 +122,34 @@ def cache_to_disk(args: argparse.Namespace) -> None:
     logger.info("load model")
     if is_sdxl:
         _, text_encoder1, text_encoder2, _, _, _, _ = sdxl_train_util.load_target_model(
-            args, accelerator, sdxl_model_util.MODEL_VERSION_SDXL_BASE_V1_0, weight_dtype
+            args,
+            accelerator,
+            sdxl_model_util.MODEL_VERSION_SDXL_BASE_V1_0,
+            weight_dtype,
         )
         text_encoder1.to(accelerator.device, weight_dtype)
         text_encoder2.to(accelerator.device, weight_dtype)
         text_encoders = [text_encoder1, text_encoder2]
     else:
         clip_l = flux_utils.load_clip_l(
-            args.clip_l, weight_dtype, accelerator.device, disable_mmap=args.disable_mmap_load_safetensors
+            args.clip_l,
+            weight_dtype,
+            accelerator.device,
+            disable_mmap=args.disable_mmap_load_safetensors,
         )
 
-        t5xxl = flux_utils.load_t5xxl(args.t5xxl, None, accelerator.device, disable_mmap=args.disable_mmap_load_safetensors)
+        t5xxl = flux_utils.load_t5xxl(
+            args.t5xxl,
+            None,
+            accelerator.device,
+            disable_mmap=args.disable_mmap_load_safetensors,
+        )
 
-        if t5xxl.dtype == torch.float8_e4m3fnuz or t5xxl.dtype == torch.float8_e5m2 or t5xxl.dtype == torch.float8_e5m2fnuz:
+        if (
+            t5xxl.dtype == torch.float8_e4m3fnuz
+            or t5xxl.dtype == torch.float8_e5m2
+            or t5xxl.dtype == torch.float8_e5m2fnuz
+        ):
             raise ValueError(f"Unsupported fp8 model dtype: {t5xxl.dtype}")
         elif t5xxl.dtype == torch.float8_e4m3fn:
             logger.info("Loaded fp8 T5XXL model")
@@ -156,24 +171,35 @@ def cache_to_disk(args: argparse.Namespace) -> None:
 
     # build text encoder outputs caching strategy
     if is_sdxl:
-        text_encoder_outputs_caching_strategy = strategy_sdxl.SdxlTextEncoderOutputsCachingStrategy(
-            args.cache_text_encoder_outputs_to_disk, None, args.skip_cache_check, is_weighted=args.weighted_captions
+        text_encoder_outputs_caching_strategy = (
+            strategy_sdxl.SdxlTextEncoderOutputsCachingStrategy(
+                args.cache_text_encoder_outputs_to_disk,
+                None,
+                args.skip_cache_check,
+                is_weighted=args.weighted_captions,
+            )
         )
     else:
-        text_encoder_outputs_caching_strategy = strategy_flux.FluxTextEncoderOutputsCachingStrategy(
-            args.cache_text_encoder_outputs_to_disk,
-            args.text_encoder_batch_size,
-            args.skip_cache_check,
-            is_partial=False,
-            apply_t5_attn_mask=args.apply_t5_attn_mask,
+        text_encoder_outputs_caching_strategy = (
+            strategy_flux.FluxTextEncoderOutputsCachingStrategy(
+                args.cache_text_encoder_outputs_to_disk,
+                args.text_encoder_batch_size,
+                args.skip_cache_check,
+                is_partial=False,
+                apply_t5_attn_mask=args.apply_t5_attn_mask,
+            )
         )
-    strategy_base.TextEncoderOutputsCachingStrategy.set_strategy(text_encoder_outputs_caching_strategy)
+    strategy_base.TextEncoderOutputsCachingStrategy.set_strategy(
+        text_encoder_outputs_caching_strategy
+    )
 
     # build text encoding strategy
     if is_sdxl:
         text_encoding_strategy = strategy_sdxl.SdxlTextEncodingStrategy()
     else:
-        text_encoding_strategy = strategy_flux.FluxTextEncodingStrategy(args.apply_t5_attn_mask)
+        text_encoding_strategy = strategy_flux.FluxTextEncodingStrategy(
+            args.apply_t5_attn_mask
+        )
     strategy_base.TextEncodingStrategy.set_strategy(text_encoding_strategy)
 
     # cache text encoder outputs
@@ -195,8 +221,12 @@ def setup_parser() -> argparse.ArgumentParser:
     train_util.add_dit_training_arguments(parser)
     flux_train_utils.add_flux_train_arguments(parser)
 
-    parser.add_argument("--sdxl", action="store_true", help="Use SDXL model / SDXLモデルを使用する")
-    parser.add_argument("--flux", action="store_true", help="Use FLUX model / FLUXモデルを使用する")
+    parser.add_argument(
+        "--sdxl", action="store_true", help="Use SDXL model / SDXLモデルを使用する"
+    )
+    parser.add_argument(
+        "--flux", action="store_true", help="Use FLUX model / FLUXモデルを使用する"
+    )
     parser.add_argument(
         "--t5xxl_dtype",
         type=str,

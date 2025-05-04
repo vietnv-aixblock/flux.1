@@ -1,7 +1,8 @@
-from langchain_huggingface.llms import HuggingFacePipeline
-from langchain.prompts import PromptTemplate
 # from langchain.chains import LLMChain
 import re
+
+from langchain.prompts import PromptTemplate
+from langchain_huggingface.llms import HuggingFacePipeline
 
 
 def qa_with_context(model, context, question):
@@ -44,17 +45,19 @@ def qa_with_context(model, context, question):
         # Run the QA chain with context and question
         # result = qa_chain.run({"context": context, "question": question})
         # print(result)
-        
+
         answer = re.search(r"Answer:\s*(.*)", result)
         # Kiểm tra và lấy phần trả lời, loại bỏ khoảng trắng và dấu chấm
         if answer:
-            final_answer = re.sub(r"[^\w\s]", "", answer.group(1)).strip() # Loại bỏ dấu chấm ở cuối nếu có
+            final_answer = re.sub(
+                r"[^\w\s]", "", answer.group(1)
+            ).strip()  # Loại bỏ dấu chấm ở cuối nếu có
             print(final_answer)
         else:
             print("No answer found.")
     except Exception as e:
         print(e)
-        
+
     return final_answer
 
 
@@ -78,7 +81,7 @@ def qa_without_context(model, question):
 
     final_answer = ""
     try:
-        
+
         # Tạo PromptTemplate chỉ với câu hỏi
         # qa_no_context_prompt_template = PromptTemplate(template=qa_no_context_prompt, input_variables=["question"])
 
@@ -91,23 +94,25 @@ def qa_without_context(model, question):
 
         # Chạy mô hình để trả lời câu hỏi
         # result = qa_no_context_chain.run({"question": question})
-        
+
         answer = re.search(r"Answer:\s*(.*)", result)
         # Kiểm tra và lấy phần trả lời, loại bỏ khoảng trắng và dấu chấm
         if answer:
-            final_answer = re.sub(r"[^\w\s]", "", answer.group(1)).strip() # Loại bỏ dấu chấm ở cuối nếu có
+            final_answer = re.sub(
+                r"[^\w\s]", "", answer.group(1)
+            ).strip()  # Loại bỏ dấu chấm ở cuối nếu có
             print(final_answer)
         else:
             print("No answer found.")
     except Exception as e:
         print(e)
-        
+
     return final_answer
+
 
 def text_classification(model, context, categories):
     hf = HuggingFacePipeline(pipeline=model)
 
-    
     # Tạo prompt cho task phân loại văn bản
     template = f"""Classify the following text into one of the following categories:
     {categories}
@@ -119,7 +124,7 @@ def text_classification(model, context, categories):
 
     final_answer = ""
     try:
-       # Tạo prompt từ template, sử dụng văn bản cần phân loại
+        # Tạo prompt từ template, sử dụng văn bản cần phân loại
         # classification_prompt_template = PromptTemplate(template=classification_prompt, input_variables=["context"])
 
         # # Tạo LLMChain cho task phân loại văn bản
@@ -130,11 +135,11 @@ def text_classification(model, context, categories):
         prompt = PromptTemplate.from_template(template)
 
         chain = prompt | hf
-        result = chain.invoke({"context": context,"categories":categories})
+        result = chain.invoke({"context": context, "categories": categories})
 
         # Sử dụng regex để trích xuất phần Classification
         classification = re.search(r"Classification:\s*(.*)", result)
-        
+
         if classification:
             final_answer = re.sub(r"[^\w\s]", "", classification.group(1)).strip()
             print("Classification:", final_answer)
@@ -143,8 +148,9 @@ def text_classification(model, context, categories):
 
     except Exception as e:
         print(e)
-        
+
     return final_answer
+
 
 def text_summarization(model, context):
     hf = HuggingFacePipeline(pipeline=model)
@@ -174,7 +180,7 @@ def text_summarization(model, context):
 
         chain = prompt | hf
 
-        result =  chain.invoke({"context": context})
+        result = chain.invoke({"context": context})
         print(result)
 
         # Sử dụng regex để trích xuất phần Summary
@@ -190,6 +196,7 @@ def text_summarization(model, context):
         print(e)
 
     return final_summary
+
 
 def text_ner(model, context, categories):
     hf = HuggingFacePipeline(pipeline=model)
@@ -220,11 +227,13 @@ def text_ner(model, context, categories):
 
         chain = prompt | hf
 
-        result = chain.invoke({"context": context,"categories":categories})
+        result = chain.invoke({"context": context, "categories": categories})
         print(result)
 
         # Trích xuất phần "Named Entities-classification:" và parse các NER
-        ner_classification = re.search(r"Named Entities-classification:\s*(.*)", result, re.DOTALL)
+        ner_classification = re.search(
+            r"Named Entities-classification:\s*(.*)", result, re.DOTALL
+        )
 
         if ner_classification:
             # Lấy danh sách các entity từ kết quả, chia theo dòng
@@ -238,7 +247,7 @@ def text_ner(model, context, categories):
             #     if match:
             #         entity_type = match.group(1).upper()  # Loại entity (Person, Location, Organization)
             #         entity_value = match.group(2).strip()  # Giá trị entity
-                    
+
             #         # Kiểm tra nếu value có nhiều địa điểm, tách ra
             #         if entity_type == 'LOCATION' and ',' in entity_value:
             #             # Tách value nếu chứa dấu phẩy

@@ -1,27 +1,30 @@
 import argparse
 import glob
-import os
 import json
+import os
 import random
 import sys
-
 from pathlib import Path
+
+import numpy as np
+import torch
+from library.device_utils import get_preferred_device, init_ipex
 from PIL import Image
 from tqdm import tqdm
-import numpy as np
 
-import torch
-from library.device_utils import init_ipex, get_preferred_device
 init_ipex()
 
 from torchvision import transforms
 from torchvision.transforms.functional import InterpolationMode
+
 sys.path.append(os.path.dirname(__file__))
-from blip.blip import blip_decoder, is_url
 import library.train_util as train_util
+from blip.blip import blip_decoder, is_url
 from library.utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
 
 DEVICE = get_preferred_device()
@@ -32,9 +35,13 @@ IMAGE_SIZE = 384
 # 正方形でいいのか？　という気がするがソースがそうなので
 IMAGE_TRANSFORM = transforms.Compose(
     [
-        transforms.Resize((IMAGE_SIZE, IMAGE_SIZE), interpolation=InterpolationMode.BICUBIC),
+        transforms.Resize(
+            (IMAGE_SIZE, IMAGE_SIZE), interpolation=InterpolationMode.BICUBIC
+        ),
         transforms.ToTensor(),
-        transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
+        transforms.Normalize(
+            (0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)
+        ),
     ]
 )
 
@@ -55,7 +62,9 @@ class ImageLoadingTransformDataset(torch.utils.data.Dataset):
             # convert to tensor temporarily so dataloader will accept it
             tensor = IMAGE_TRANSFORM(image)
         except Exception as e:
-            logger.error(f"Could not load image path / 画像を読み込めません: {img_path}, error: {e}")
+            logger.error(
+                f"Could not load image path / 画像を読み込めません: {img_path}, error: {e}"
+            )
             return None
 
         return (tensor, img_path)
@@ -79,12 +88,16 @@ def main(args):
     random.seed(seed)
 
     if not os.path.exists("blip"):
-        args.train_data_dir = os.path.abspath(args.train_data_dir)  # convert to absolute path
+        args.train_data_dir = os.path.abspath(
+            args.train_data_dir
+        )  # convert to absolute path
 
         cwd = os.getcwd()
         logger.info(f"Current Working Directory is: {cwd}")
         os.chdir("finetune")
-        if not is_url(args.caption_weights) and not os.path.isfile(args.caption_weights):
+        if not is_url(args.caption_weights) and not os.path.isfile(
+            args.caption_weights
+        ):
             args.caption_weights = os.path.join("..", args.caption_weights)
 
     logger.info(f"load images from {args.train_data_dir}")
@@ -93,7 +106,12 @@ def main(args):
     logger.info(f"found {len(image_paths)} images.")
 
     logger.info(f"loading BLIP caption: {args.caption_weights}")
-    model = blip_decoder(pretrained=args.caption_weights, image_size=IMAGE_SIZE, vit="large", med_config="./blip/med_config.json")
+    model = blip_decoder(
+        pretrained=args.caption_weights,
+        image_size=IMAGE_SIZE,
+        vit="large",
+        med_config="./blip/med_config.json",
+    )
     model.eval()
     model = model.to(DEVICE)
     logger.info("BLIP loaded")
@@ -105,18 +123,30 @@ def main(args):
         with torch.no_grad():
             if args.beam_search:
                 captions = model.generate(
-                    imgs, sample=False, num_beams=args.num_beams, max_length=args.max_length, min_length=args.min_length
+                    imgs,
+                    sample=False,
+                    num_beams=args.num_beams,
+                    max_length=args.max_length,
+                    min_length=args.min_length,
                 )
             else:
                 captions = model.generate(
-                    imgs, sample=True, top_p=args.top_p, max_length=args.max_length, min_length=args.min_length
+                    imgs,
+                    sample=True,
+                    top_p=args.top_p,
+                    max_length=args.max_length,
+                    min_length=args.min_length,
                 )
 
         for (image_path, _), caption in zip(path_imgs, captions):
-            with open(os.path.splitext(image_path)[0] + args.caption_extension, "wt", encoding="utf-8") as f:
+            with open(
+                os.path.splitext(image_path)[0] + args.caption_extension,
+                "wt",
+                encoding="utf-8",
+            ) as f:
                 f.write(caption + "\n")
                 if args.debug:
-                    logger.info(f'{image_path} {caption}')
+                    logger.info(f"{image_path} {caption}")
 
     # 読み込みの高速化のためにDataLoaderを使うオプション
     if args.max_data_loader_n_workers is not None:
@@ -146,7 +176,9 @@ def main(args):
                         raw_image = raw_image.convert("RGB")
                     img_tensor = IMAGE_TRANSFORM(raw_image)
                 except Exception as e:
-                    logger.error(f"Could not load image path / 画像を読み込めません: {image_path}, error: {e}")
+                    logger.error(
+                        f"Could not load image path / 画像を読み込めません: {image_path}, error: {e}"
+                    )
                     continue
 
             b_imgs.append((image_path, img_tensor))
@@ -161,7 +193,11 @@ def main(args):
 
 def setup_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("train_data_dir", type=str, help="directory for train images / 学習画像データのディレクトリ")
+    parser.add_argument(
+        "train_data_dir",
+        type=str,
+        help="directory for train images / 学習画像データのディレクトリ",
+    )
     parser.add_argument(
         "--caption_weights",
         type=str,
@@ -174,26 +210,65 @@ def setup_parser() -> argparse.ArgumentParser:
         default=None,
         help="extension of caption file (for backward compatibility) / 出力されるキャプションファイルの拡張子（スペルミスしていたのを残してあります）",
     )
-    parser.add_argument("--caption_extension", type=str, default=".caption", help="extension of caption file / 出力されるキャプションファイルの拡張子")
+    parser.add_argument(
+        "--caption_extension",
+        type=str,
+        default=".caption",
+        help="extension of caption file / 出力されるキャプションファイルの拡張子",
+    )
     parser.add_argument(
         "--beam_search",
         action="store_true",
         help="use beam search (default Nucleus sampling) / beam searchを使う（このオプション未指定時はNucleus sampling）",
     )
-    parser.add_argument("--batch_size", type=int, default=1, help="batch size in inference / 推論時のバッチサイズ")
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=1,
+        help="batch size in inference / 推論時のバッチサイズ",
+    )
     parser.add_argument(
         "--max_data_loader_n_workers",
         type=int,
         default=None,
         help="enable image reading by DataLoader with this number of workers (faster) / DataLoaderによる画像読み込みを有効にしてこのワーカー数を適用する（読み込みを高速化）",
     )
-    parser.add_argument("--num_beams", type=int, default=1, help="num of beams in beam search /beam search時のビーム数（多いと精度が上がるが時間がかかる）")
-    parser.add_argument("--top_p", type=float, default=0.9, help="top_p in Nucleus sampling / Nucleus sampling時のtop_p")
-    parser.add_argument("--max_length", type=int, default=75, help="max length of caption / captionの最大長")
-    parser.add_argument("--min_length", type=int, default=5, help="min length of caption / captionの最小長")
-    parser.add_argument("--seed", default=42, type=int, help="seed for reproducibility / 再現性を確保するための乱数seed")
+    parser.add_argument(
+        "--num_beams",
+        type=int,
+        default=1,
+        help="num of beams in beam search /beam search時のビーム数（多いと精度が上がるが時間がかかる）",
+    )
+    parser.add_argument(
+        "--top_p",
+        type=float,
+        default=0.9,
+        help="top_p in Nucleus sampling / Nucleus sampling時のtop_p",
+    )
+    parser.add_argument(
+        "--max_length",
+        type=int,
+        default=75,
+        help="max length of caption / captionの最大長",
+    )
+    parser.add_argument(
+        "--min_length",
+        type=int,
+        default=5,
+        help="min length of caption / captionの最小長",
+    )
+    parser.add_argument(
+        "--seed",
+        default=42,
+        type=int,
+        help="seed for reproducibility / 再現性を確保するための乱数seed",
+    )
     parser.add_argument("--debug", action="store_true", help="debug mode")
-    parser.add_argument("--recursive", action="store_true", help="search for images in subfolders recursively / サブフォルダを再帰的に検索する")
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="search for images in subfolders recursively / サブフォルダを再帰的に検索する",
+    )
 
     return parser
 

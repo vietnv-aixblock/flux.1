@@ -1,6 +1,7 @@
-from huggingface_hub import HfFolder
 import os
+
 import torch
+from huggingface_hub import HfFolder
 from transformers import pipeline
 
 # Đặt token của bạn vào đây
@@ -27,7 +28,7 @@ if torch.cuda.is_available():
         torch_dtype=dtype,
         device_map="auto",  # Hoặc có thể thử "cpu" nếu không ổn,
         max_new_tokens=256,
-        token="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"
+        token="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",
     )
 else:
     print("No GPU available, using CPU.")
@@ -36,5 +37,5 @@ else:
         model="tonyshark/llama-3.2-nemotron-3b-instruct",
         device_map="cpu",
         max_new_tokens=256,
-        token="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"
+        token="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",
     )

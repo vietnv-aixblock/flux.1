@@ -4,39 +4,50 @@
 import argparse
 import glob
 import os
-import cv2
-from diffusers import AutoencoderKL
-
 from typing import Dict, List
-import numpy as np
 
+import cv2
+import numpy as np
 import torch
-from library.device_utils import init_ipex, get_preferred_device
+from diffusers import AutoencoderKL
+from library.device_utils import get_preferred_device, init_ipex
+
 init_ipex()
 
+from library.utils import setup_logging
+from PIL import Image
 from torch import nn
 from tqdm import tqdm
-from PIL import Image
-from library.utils import setup_logging
+
 setup_logging()
 import logging
+
 logger = logging.getLogger(__name__)
 
+
 class ResidualBlock(nn.Module):
-    def __init__(self, in_channels, out_channels=None, kernel_size=3, stride=1, padding=1):
+    def __init__(
+        self, in_channels, out_channels=None, kernel_size=3, stride=1, padding=1
+    ):
         super(ResidualBlock, self).__init__()
 
         if out_channels is None:
             out_channels = in_channels
 
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, kernel_size, stride, padding, bias=False
+        )
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.relu1 = nn.ReLU(inplace=True)
 
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, stride, padding, bias=False)
+        self.conv2 = nn.Conv2d(
+            out_channels, out_channels, kernel_size, stride, padding, bias=False
+        )
         self.bn2 = nn.BatchNorm2d(out_channels)
 
-        self.relu2 = nn.ReLU(inplace=True)  # このReLUはresidualに足す前にかけるほうがいいかも
+        self.relu2 = nn.ReLU(
+            inplace=True
+        )  # このReLUはresidualに足す前にかけるほうがいいかも
 
         # initialize weights
         self._initialize_weights()
@@ -78,7 +89,9 @@ class Upscaler(nn.Module):
         # define layers
         # latent has 4 channels
 
-        self.conv1 = nn.Conv2d(4, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        self.conv1 = nn.Conv2d(
+            4, 128, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False
+        )
         self.bn1 = nn.BatchNorm2d(128)
         self.relu1 = nn.ReLU(inplace=True)
 
@@ -106,16 +119,22 @@ class Upscaler(nn.Module):
         self.resblock20 = ResidualBlock(128)
 
         # last convs
-        self.conv2 = nn.Conv2d(128, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        self.conv2 = nn.Conv2d(
+            128, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False
+        )
         self.bn2 = nn.BatchNorm2d(64)
         self.relu2 = nn.ReLU(inplace=True)
 
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False)
+        self.conv3 = nn.Conv2d(
+            64, 64, kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), bias=False
+        )
         self.bn3 = nn.BatchNorm2d(64)
         self.relu3 = nn.ReLU(inplace=True)
 
         # final conv: output 4 channels
-        self.conv_final = nn.Conv2d(64, 4, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0))
+        self.conv_final = nn.Conv2d(
+            64, 4, kernel_size=(1, 1), stride=(1, 1), padding=(0, 0)
+        )
 
         # initialize weights
         self._initialize_weights()
@@ -210,11 +229,16 @@ class Upscaler(nn.Module):
         # make upsampled image with lanczos4
         upsampled_images = []
         for lowreso_image in lowreso_images:
-            upsampled_image = np.array(lowreso_image.resize((width, height), Image.LANCZOS))
+            upsampled_image = np.array(
+                lowreso_image.resize((width, height), Image.LANCZOS)
+            )
             upsampled_images.append(upsampled_image)
 
         # convert to tensor: this tensor is too large to be converted to cuda
-        upsampled_images = [torch.from_numpy(upsampled_image).permute(2, 0, 1).float() for upsampled_image in upsampled_images]
+        upsampled_images = [
+            torch.from_numpy(upsampled_image).permute(2, 0, 1).float()
+            for upsampled_image in upsampled_images
+        ]
         upsampled_images = torch.stack(upsampled_images, dim=0)
         upsampled_images = upsampled_images.to(dtype)
 
@@ -237,7 +261,9 @@ class Upscaler(nn.Module):
         upscaled_latents = []
         for i in range(0, upsampled_latents.shape[0], batch_size):
             with torch.no_grad():
-                upscaled_latents.append(self.forward(upsampled_latents[i : i + batch_size]))
+                upscaled_latents.append(
+                    self.forward(upsampled_latents[i : i + batch_size])
+                )
         upscaled_latents = torch.cat(upscaled_latents, dim=0)
 
         return upscaled_latents * 0.18215
@@ -301,17 +327,28 @@ def upscale_images(args: argparse.Namespace):
     # debug output
     if args.debug:
         for image, image_path in zip(images, image_paths):
-            image_debug = image.resize((image.width * 2, image.height * 2), Image.LANCZOS)
+            image_debug = image.resize(
+                (image.width * 2, image.height * 2), Image.LANCZOS
+            )
 
             basename = os.path.basename(image_path)
             basename_wo_ext, ext = os.path.splitext(basename)
-            dest_file_name = os.path.join(args.output_dir, f"{basename_wo_ext}_lanczos4{ext}")
+            dest_file_name = os.path.join(
+                args.output_dir, f"{basename_wo_ext}_lanczos4{ext}"
+            )
             image_debug.save(dest_file_name)
 
     # upscale
     logger.info("Upscaling...")
     upscaled_latents = upscaler.upscale(
-        vae, images, None, us_dtype, width * 2, height * 2, batch_size=args.batch_size, vae_batch_size=args.vae_batch_size
+        vae,
+        images,
+        None,
+        us_dtype,
+        width * 2,
+        height * 2,
+        batch_size=args.batch_size,
+        vae_batch_size=args.vae_batch_size,
     )
     upscaled_latents /= 0.18215
 
@@ -336,7 +373,9 @@ def upscale_images(args: argparse.Namespace):
     for i, image in enumerate(upscaled_images):
         basename = os.path.basename(image_paths[i])
         basename_wo_ext, ext = os.path.splitext(basename)
-        dest_file_name = os.path.join(args.output_dir, f"{basename_wo_ext}_upscaled{ext}")
+        dest_file_name = os.path.join(
+            args.output_dir, f"{basename_wo_ext}_upscaled{ext}"
+        )
         cv2.imwrite(dest_file_name, image)
 
 

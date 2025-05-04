@@ -6,11 +6,10 @@ from typing import List, Optional, Tuple, Union
 import einops
 import torch
 from accelerate import init_empty_weights
+from library.utils import setup_logging
 from safetensors import safe_open
 from safetensors.torch import load_file
 from transformers import CLIPConfig, CLIPTextModel, T5Config, T5EncoderModel
-
-from library.utils import setup_logging
 
 setup_logging()
 import logging
@@ -25,7 +24,9 @@ MODEL_NAME_DEV = "dev"
 MODEL_NAME_SCHNELL = "schnell"
 
 
-def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int], List[str]]:
+def analyze_checkpoint_state(
+    ckpt_path: str,
+) -> Tuple[bool, bool, Tuple[int, int], List[str]]:
     """
     チェックポイントの状態を分析し、DiffusersかBFLか、devかschnellか、ブロック数を計算して返す。
 
@@ -43,9 +44,16 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
     logger.info(f"Checking the state dict: Diffusers or BFL, dev or schnell")
 
     if os.path.isdir(ckpt_path):  # if ckpt_path is a directory, it is Diffusers
-        ckpt_path = os.path.join(ckpt_path, "transformer", "diffusion_pytorch_model-00001-of-00003.safetensors")
+        ckpt_path = os.path.join(
+            ckpt_path,
+            "transformer",
+            "diffusion_pytorch_model-00001-of-00003.safetensors",
+        )
     if "00001-of-00003" in ckpt_path:
-        ckpt_paths = [ckpt_path.replace("00001-of-00003", f"0000{i}-of-00003") for i in range(1, 4)]
+        ckpt_paths = [
+            ckpt_path.replace("00001-of-00003", f"0000{i}-of-00003")
+            for i in range(1, 4)
+        ]
     else:
         ckpt_paths = [ckpt_path]
 
@@ -59,29 +67,44 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
         keys = [key.replace("model.diffusion_model.", "") for key in keys]
 
     is_diffusers = "transformer_blocks.0.attn.add_k_proj.bias" in keys
-    is_schnell = not ("guidance_in.in_layer.bias" in keys or "time_text_embed.guidance_embedder.linear_1.bias" in keys)
+    is_schnell = not (
+        "guidance_in.in_layer.bias" in keys
+        or "time_text_embed.guidance_embedder.linear_1.bias" in keys
+    )
 
     # check number of double and single blocks
     if not is_diffusers:
         max_double_block_index = max(
-            [int(key.split(".")[1]) for key in keys if key.startswith("double_blocks.") and key.endswith(".img_attn.proj.bias")]
-        )
-        max_single_block_index = max(
-            [int(key.split(".")[1]) for key in keys if key.startswith("single_blocks.") and key.endswith(".modulation.lin.bias")]
-        )
-    else:
-        max_double_block_index = max(
             [
                 int(key.split(".")[1])
                 for key in keys
-                if key.startswith("transformer_blocks.") and key.endswith(".attn.add_k_proj.bias")
+                if key.startswith("double_blocks.")
+                and key.endswith(".img_attn.proj.bias")
             ]
         )
         max_single_block_index = max(
             [
                 int(key.split(".")[1])
                 for key in keys
-                if key.startswith("single_transformer_blocks.") and key.endswith(".attn.to_k.bias")
+                if key.startswith("single_blocks.")
+                and key.endswith(".modulation.lin.bias")
+            ]
+        )
+    else:
+        max_double_block_index = max(
+            [
+                int(key.split(".")[1])
+                for key in keys
+                if key.startswith("transformer_blocks.")
+                and key.endswith(".attn.add_k_proj.bias")
+            ]
+        )
+        max_single_block_index = max(
+            [
+                int(key.split(".")[1])
+                for key in keys
+                if key.startswith("single_transformer_blocks.")
+                and key.endswith(".attn.to_k.bias")
             ]
         )
 
@@ -92,22 +115,33 @@ def analyze_checkpoint_state(ckpt_path: str) -> Tuple[bool, bool, Tuple[int, int
 
 
 def load_flow_model(
-    ckpt_path: str, dtype: Optional[torch.dtype], device: Union[str, torch.device], disable_mmap: bool = False
+    ckpt_path: str,
+    dtype: Optional[torch.dtype],
+    device: Union[str, torch.device],
+    disable_mmap: bool = False,
 ) -> Tuple[bool, flux_models.Flux]:
-    is_diffusers, is_schnell, (num_double_blocks, num_single_blocks), ckpt_paths = analyze_checkpoint_state(ckpt_path)
+    is_diffusers, is_schnell, (num_double_blocks, num_single_blocks), ckpt_paths = (
+        analyze_checkpoint_state(ckpt_path)
+    )
     name = MODEL_NAME_DEV if not is_schnell else MODEL_NAME_SCHNELL
 
     # build model
-    logger.info(f"Building Flux model {name} from {'Diffusers' if is_diffusers else 'BFL'} checkpoint")
+    logger.info(
+        f"Building Flux model {name} from {'Diffusers' if is_diffusers else 'BFL'} checkpoint"
+    )
     with torch.device("meta"):
         params = flux_models.configs[name].params
 
         # set the number of blocks
         if params.depth != num_double_blocks:
-            logger.info(f"Setting the number of double blocks from {params.depth} to {num_double_blocks}")
+            logger.info(
+                f"Setting the number of double blocks from {params.depth} to {num_double_blocks}"
+            )
             params = replace(params, depth=num_double_blocks)
         if params.depth_single_blocks != num_single_blocks:
-            logger.info(f"Setting the number of single blocks from {params.depth_single_blocks} to {num_single_blocks}")
+            logger.info(
+                f"Setting the number of single blocks from {params.depth_single_blocks} to {num_single_blocks}"
+            )
             params = replace(params, depth_single_blocks=num_single_blocks)
 
         model = flux_models.Flux(params)
@@ -118,7 +152,11 @@ def load_flow_model(
     logger.info(f"Loading state dict from {ckpt_path}")
     sd = {}
     for ckpt_path in ckpt_paths:
-        sd.update(load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype))
+        sd.update(
+            load_safetensors(
+                ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+            )
+        )
 
     # convert Diffusers to BFL
     if is_diffusers:
@@ -139,34 +177,49 @@ def load_flow_model(
 
 
 def load_ae(
-    ckpt_path: str, dtype: torch.dtype, device: Union[str, torch.device], disable_mmap: bool = False
+    ckpt_path: str,
+    dtype: torch.dtype,
+    device: Union[str, torch.device],
+    disable_mmap: bool = False,
 ) -> flux_models.AutoEncoder:
     logger.info("Building AutoEncoder")
     with torch.device("meta"):
         # dev and schnell have the same AE params
-        ae = flux_models.AutoEncoder(flux_models.configs[MODEL_NAME_DEV].ae_params).to(dtype)
+        ae = flux_models.AutoEncoder(flux_models.configs[MODEL_NAME_DEV].ae_params).to(
+            dtype
+        )
 
     logger.info(f"Loading state dict from {ckpt_path}")
-    sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+    sd = load_safetensors(
+        ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+    )
     info = ae.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded AE: {info}")
     return ae
 
 
 def load_controlnet(
-    ckpt_path: Optional[str], is_schnell: bool, dtype: torch.dtype, device: Union[str, torch.device], disable_mmap: bool = False
+    ckpt_path: Optional[str],
+    is_schnell: bool,
+    dtype: torch.dtype,
+    device: Union[str, torch.device],
+    disable_mmap: bool = False,
 ):
     logger.info("Building ControlNet")
     name = MODEL_NAME_DEV if not is_schnell else MODEL_NAME_SCHNELL
     with torch.device(device):
-        controlnet = flux_models.ControlNetFlux(flux_models.configs[name].params).to(dtype)
+        controlnet = flux_models.ControlNetFlux(flux_models.configs[name].params).to(
+            dtype
+        )
 
     if ckpt_path is not None:
         logger.info(f"Loading state dict from {ckpt_path}")
-        sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+        sd = load_safetensors(
+            ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+        )
         info = controlnet.load_state_dict(sd, strict=False, assign=True)
         logger.info(f"Loaded ControlNet: {info}")
-    return controlnet    
+    return controlnet
 
 
 def load_clip_l(
@@ -273,7 +326,9 @@ def load_clip_l(
         sd = state_dict
     else:
         logger.info(f"Loading state dict from {ckpt_path}")
-        sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+        sd = load_safetensors(
+            ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+        )
     info = clip.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded CLIP-L: {info}")
     return clip
@@ -328,7 +383,9 @@ def load_t5xxl(
         sd = state_dict
     else:
         logger.info(f"Loading state dict from {ckpt_path}")
-        sd = load_safetensors(ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype)
+        sd = load_safetensors(
+            ckpt_path, device=str(device), disable_mmap=disable_mmap, dtype=dtype
+        )
     info = t5xxl.load_state_dict(sd, strict=False, assign=True)
     logger.info(f"Loaded T5xxl: {info}")
     return t5xxl
@@ -339,7 +396,9 @@ def get_t5xxl_actual_dtype(t5xxl: T5EncoderModel) -> torch.dtype:
     return t5xxl.encoder.block[0].layer[0].SelfAttention.q.weight.dtype
 
 
-def prepare_img_ids(batch_size: int, packed_latent_height: int, packed_latent_width: int):
+def prepare_img_ids(
+    batch_size: int, packed_latent_height: int, packed_latent_width: int
+):
     img_ids = torch.zeros(packed_latent_height, packed_latent_width, 3)
     img_ids[..., 1] = img_ids[..., 1] + torch.arange(packed_latent_height)[:, None]
     img_ids[..., 2] = img_ids[..., 2] + torch.arange(packed_latent_width)[None, :]
@@ -347,11 +406,20 @@ def prepare_img_ids(batch_size: int, packed_latent_height: int, packed_latent_wi
     return img_ids
 
 
-def unpack_latents(x: torch.Tensor, packed_latent_height: int, packed_latent_width: int) -> torch.Tensor:
+def unpack_latents(
+    x: torch.Tensor, packed_latent_height: int, packed_latent_width: int
+) -> torch.Tensor:
     """
     x: [b (h w) (c ph pw)] -> [b c (h ph) (w pw)], ph=2, pw=2
     """
-    x = einops.rearrange(x, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=packed_latent_height, w=packed_latent_width, ph=2, pw=2)
+    x = einops.rearrange(
+        x,
+        "b (h w) (c ph pw) -> b c (h ph) (w pw)",
+        h=packed_latent_height,
+        w=packed_latent_width,
+        ph=2,
+        pw=2,
+    )
     return x
 
 
@@ -377,9 +445,13 @@ BFL_TO_DIFFUSERS_MAP = {
     "vector_in.in_layer.bias": ["time_text_embed.text_embedder.linear_1.bias"],
     "vector_in.out_layer.weight": ["time_text_embed.text_embedder.linear_2.weight"],
     "vector_in.out_layer.bias": ["time_text_embed.text_embedder.linear_2.bias"],
-    "guidance_in.in_layer.weight": ["time_text_embed.guidance_embedder.linear_1.weight"],
+    "guidance_in.in_layer.weight": [
+        "time_text_embed.guidance_embedder.linear_1.weight"
+    ],
     "guidance_in.in_layer.bias": ["time_text_embed.guidance_embedder.linear_1.bias"],
-    "guidance_in.out_layer.weight": ["time_text_embed.guidance_embedder.linear_2.weight"],
+    "guidance_in.out_layer.weight": [
+        "time_text_embed.guidance_embedder.linear_2.weight"
+    ],
     "guidance_in.out_layer.bias": ["time_text_embed.guidance_embedder.linear_2.bias"],
     "txt_in.weight": ["context_embedder.weight"],
     "txt_in.bias": ["context_embedder.bias"],
@@ -389,10 +461,26 @@ BFL_TO_DIFFUSERS_MAP = {
     "double_blocks.().img_mod.lin.bias": ["norm1.linear.bias"],
     "double_blocks.().txt_mod.lin.weight": ["norm1_context.linear.weight"],
     "double_blocks.().txt_mod.lin.bias": ["norm1_context.linear.bias"],
-    "double_blocks.().img_attn.qkv.weight": ["attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight"],
-    "double_blocks.().img_attn.qkv.bias": ["attn.to_q.bias", "attn.to_k.bias", "attn.to_v.bias"],
-    "double_blocks.().txt_attn.qkv.weight": ["attn.add_q_proj.weight", "attn.add_k_proj.weight", "attn.add_v_proj.weight"],
-    "double_blocks.().txt_attn.qkv.bias": ["attn.add_q_proj.bias", "attn.add_k_proj.bias", "attn.add_v_proj.bias"],
+    "double_blocks.().img_attn.qkv.weight": [
+        "attn.to_q.weight",
+        "attn.to_k.weight",
+        "attn.to_v.weight",
+    ],
+    "double_blocks.().img_attn.qkv.bias": [
+        "attn.to_q.bias",
+        "attn.to_k.bias",
+        "attn.to_v.bias",
+    ],
+    "double_blocks.().txt_attn.qkv.weight": [
+        "attn.add_q_proj.weight",
+        "attn.add_k_proj.weight",
+        "attn.add_v_proj.weight",
+    ],
+    "double_blocks.().txt_attn.qkv.bias": [
+        "attn.add_q_proj.bias",
+        "attn.add_k_proj.bias",
+        "attn.add_v_proj.bias",
+    ],
     "double_blocks.().img_attn.norm.query_norm.scale": ["attn.norm_q.weight"],
     "double_blocks.().img_attn.norm.key_norm.scale": ["attn.norm_k.weight"],
     "double_blocks.().txt_attn.norm.query_norm.scale": ["attn.norm_added_q.weight"],
@@ -411,8 +499,18 @@ BFL_TO_DIFFUSERS_MAP = {
     "double_blocks.().txt_attn.proj.bias": ["attn.to_add_out.bias"],
     "single_blocks.().modulation.lin.weight": ["norm.linear.weight"],
     "single_blocks.().modulation.lin.bias": ["norm.linear.bias"],
-    "single_blocks.().linear1.weight": ["attn.to_q.weight", "attn.to_k.weight", "attn.to_v.weight", "proj_mlp.weight"],
-    "single_blocks.().linear1.bias": ["attn.to_q.bias", "attn.to_k.bias", "attn.to_v.bias", "proj_mlp.bias"],
+    "single_blocks.().linear1.weight": [
+        "attn.to_q.weight",
+        "attn.to_k.weight",
+        "attn.to_v.weight",
+        "proj_mlp.weight",
+    ],
+    "single_blocks.().linear1.bias": [
+        "attn.to_q.bias",
+        "attn.to_k.bias",
+        "attn.to_v.bias",
+        "proj_mlp.bias",
+    ],
     "single_blocks.().linear2.weight": ["proj_out.weight"],
     "single_blocks.().norm.query_norm.scale": ["attn.norm_q.weight"],
     "single_blocks.().norm.key_norm.scale": ["attn.norm_k.weight"],
@@ -425,7 +523,9 @@ BFL_TO_DIFFUSERS_MAP = {
 }
 
 
-def make_diffusers_to_bfl_map(num_double_blocks: int, num_single_blocks: int) -> dict[str, tuple[int, str]]:
+def make_diffusers_to_bfl_map(
+    num_double_blocks: int, num_single_blocks: int
+) -> dict[str, tuple[int, str]]:
     # make reverse map from diffusers map
     diffusers_to_bfl_map = {}  # key: diffusers_key, value: (index, bfl_key)
     for b in range(num_double_blocks):
@@ -433,13 +533,19 @@ def make_diffusers_to_bfl_map(num_double_blocks: int, num_single_blocks: int) ->
             if key.startswith("double_blocks."):
                 block_prefix = f"transformer_blocks.{b}."
                 for i, weight in enumerate(weights):
-                    diffusers_to_bfl_map[f"{block_prefix}{weight}"] = (i, key.replace("()", f"{b}"))
+                    diffusers_to_bfl_map[f"{block_prefix}{weight}"] = (
+                        i,
+                        key.replace("()", f"{b}"),
+                    )
     for b in range(num_single_blocks):
         for key, weights in BFL_TO_DIFFUSERS_MAP.items():
             if key.startswith("single_blocks."):
                 block_prefix = f"single_transformer_blocks.{b}."
                 for i, weight in enumerate(weights):
-                    diffusers_to_bfl_map[f"{block_prefix}{weight}"] = (i, key.replace("()", f"{b}"))
+                    diffusers_to_bfl_map[f"{block_prefix}{weight}"] = (
+                        i,
+                        key.replace("()", f"{b}"),
+                    )
     for key, weights in BFL_TO_DIFFUSERS_MAP.items():
         if not (key.startswith("double_blocks.") or key.startswith("single_blocks.")):
             for i, weight in enumerate(weights):
@@ -448,9 +554,13 @@ def make_diffusers_to_bfl_map(num_double_blocks: int, num_single_blocks: int) ->
 
 
 def convert_diffusers_sd_to_bfl(
-    diffusers_sd: dict[str, torch.Tensor], num_double_blocks: int = NUM_DOUBLE_BLOCKS, num_single_blocks: int = NUM_SINGLE_BLOCKS
+    diffusers_sd: dict[str, torch.Tensor],
+    num_double_blocks: int = NUM_DOUBLE_BLOCKS,
+    num_single_blocks: int = NUM_SINGLE_BLOCKS,
 ) -> dict[str, torch.Tensor]:
-    diffusers_to_bfl_map = make_diffusers_to_bfl_map(num_double_blocks, num_single_blocks)
+    diffusers_to_bfl_map = make_diffusers_to_bfl_map(
+        num_double_blocks, num_single_blocks
+    )
 
     # iterate over three safetensors files to reduce memory usage
     flux_sd = {}
@@ -461,7 +571,9 @@ def convert_diffusers_sd_to_bfl(
                 flux_sd[bfl_key] = []
             flux_sd[bfl_key].append((index, tensor))
         else:
-            logger.error(f"Error: Key not found in diffusers_to_bfl_map: {diffusers_key}")
+            logger.error(
+                f"Error: Key not found in diffusers_to_bfl_map: {diffusers_key}"
+            )
             raise KeyError(f"Key not found in diffusers_to_bfl_map: {diffusers_key}")
 
     # concat tensors if multiple tensors are mapped to a single key, sort by index
@@ -469,7 +581,9 @@ def convert_diffusers_sd_to_bfl(
         if len(values) == 1:
             flux_sd[key] = values[0][1]
         else:
-            flux_sd[key] = torch.cat([value[1] for value in sorted(values, key=lambda x: x[0])])
+            flux_sd[key] = torch.cat(
+                [value[1] for value in sorted(values, key=lambda x: x[0])]
+            )
 
     # special case for final_layer.adaLN_modulation.1.weight and final_layer.adaLN_modulation.1.bias
     def swap_scale_shift(weight):
@@ -478,9 +592,13 @@ def convert_diffusers_sd_to_bfl(
         return new_weight
 
     if "final_layer.adaLN_modulation.1.weight" in flux_sd:
-        flux_sd["final_layer.adaLN_modulation.1.weight"] = swap_scale_shift(flux_sd["final_layer.adaLN_modulation.1.weight"])
+        flux_sd["final_layer.adaLN_modulation.1.weight"] = swap_scale_shift(
+            flux_sd["final_layer.adaLN_modulation.1.weight"]
+        )
     if "final_layer.adaLN_modulation.1.bias" in flux_sd:
-        flux_sd["final_layer.adaLN_modulation.1.bias"] = swap_scale_shift(flux_sd["final_layer.adaLN_modulation.1.bias"])
+        flux_sd["final_layer.adaLN_modulation.1.bias"] = swap_scale_shift(
+            flux_sd["final_layer.adaLN_modulation.1.bias"]
+        )
 
     return flux_sd
 

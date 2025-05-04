@@ -24,13 +24,18 @@
 import argparse
 import os
 from pathlib import Path
-import safetensors
-from safetensors.torch import safe_open
-import torch
-from tqdm import tqdm
 
+import safetensors
+import torch
 from library import flux_utils
-from library.utils import setup_logging, str_to_dtype, MemoryEfficientSafeOpen, mem_eff_save_file
+from library.utils import (
+    MemoryEfficientSafeOpen,
+    mem_eff_save_file,
+    setup_logging,
+    str_to_dtype,
+)
+from safetensors.torch import safe_open
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -42,7 +47,11 @@ def convert(args):
     # if diffusers_path is folder, get safetensors file
     diffusers_path = Path(args.diffusers_path)
     if diffusers_path.is_dir():
-        diffusers_path = Path.joinpath(diffusers_path, "transformer", "diffusion_pytorch_model-00001-of-00003.safetensors")
+        diffusers_path = Path.joinpath(
+            diffusers_path,
+            "transformer",
+            "diffusion_pytorch_model-00001-of-00003.safetensors",
+        )
 
     flux_path = Path(args.save_to)
     if not os.path.exists(flux_path.parent):
@@ -53,7 +62,9 @@ def convert(args):
         return
 
     mem_eff_flag = args.mem_eff_load_save
-    save_dtype = str_to_dtype(args.save_precision) if args.save_precision is not None else None
+    save_dtype = (
+        str_to_dtype(args.save_precision) if args.save_precision is not None else None
+    )
 
     # make reverse map from diffusers map
     diffusers_to_bfl_map = flux_utils.make_diffusers_to_bfl_map()
@@ -62,10 +73,16 @@ def convert(args):
     flux_sd = {}
     for i in range(3):
         # replace 00001 with 0000i
-        current_diffusers_path = Path(str(diffusers_path).replace("00001", f"0000{i+1}"))
+        current_diffusers_path = Path(
+            str(diffusers_path).replace("00001", f"0000{i+1}")
+        )
         logger.info(f"Loading diffusers file: {current_diffusers_path}")
 
-        open_func = MemoryEfficientSafeOpen if mem_eff_flag else (lambda x: safe_open(x, framework="pt"))
+        open_func = (
+            MemoryEfficientSafeOpen
+            if mem_eff_flag
+            else (lambda x: safe_open(x, framework="pt"))
+        )
         with open_func(current_diffusers_path) as f:
             for diffusers_key in tqdm(f.keys()):
                 if diffusers_key in diffusers_to_bfl_map:
@@ -78,7 +95,9 @@ def convert(args):
                         flux_sd[bfl_key] = []
                     flux_sd[bfl_key].append((index, tensor))
                 else:
-                    logger.error(f"Error: Key not found in diffusers_to_bfl_map: {diffusers_key}")
+                    logger.error(
+                        f"Error: Key not found in diffusers_to_bfl_map: {diffusers_key}"
+                    )
                     return
 
     # concat tensors if multiple tensors are mapped to a single key, sort by index
@@ -86,7 +105,9 @@ def convert(args):
         if len(values) == 1:
             flux_sd[key] = values[0][1]
         else:
-            flux_sd[key] = torch.cat([value[1] for value in sorted(values, key=lambda x: x[0])])
+            flux_sd[key] = torch.cat(
+                [value[1] for value in sorted(values, key=lambda x: x[0])]
+            )
 
     # special case for final_layer.adaLN_modulation.1.weight and final_layer.adaLN_modulation.1.bias
     def swap_scale_shift(weight):
@@ -95,9 +116,13 @@ def convert(args):
         return new_weight
 
     if "final_layer.adaLN_modulation.1.weight" in flux_sd:
-        flux_sd["final_layer.adaLN_modulation.1.weight"] = swap_scale_shift(flux_sd["final_layer.adaLN_modulation.1.weight"])
+        flux_sd["final_layer.adaLN_modulation.1.weight"] = swap_scale_shift(
+            flux_sd["final_layer.adaLN_modulation.1.weight"]
+        )
     if "final_layer.adaLN_modulation.1.bias" in flux_sd:
-        flux_sd["final_layer.adaLN_modulation.1.bias"] = swap_scale_shift(flux_sd["final_layer.adaLN_modulation.1.bias"])
+        flux_sd["final_layer.adaLN_modulation.1.bias"] = swap_scale_shift(
+            flux_sd["final_layer.adaLN_modulation.1.bias"]
+        )
 
     # save flux_sd to safetensors file
     logger.info(f"Saving Flux safetensors file: {flux_path}")

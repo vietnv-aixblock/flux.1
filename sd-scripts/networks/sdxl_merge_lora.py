@@ -1,18 +1,19 @@
+import argparse
+import concurrent.futures
 import itertools
 import math
-import argparse
 import os
 import time
-import concurrent.futures
-import torch
-from safetensors.torch import load_file, save_file
-from tqdm import tqdm
-from library import sai_model_spec, sdxl_model_util, train_util
+
 import library.model_util as model_util
 import lora
 import oft
-from svd_merge_lora import format_lbws, get_lbw_block_index, LAYER26
+import torch
+from library import sai_model_spec, sdxl_model_util, train_util
 from library.utils import setup_logging
+from safetensors.torch import load_file, save_file
+from svd_merge_lora import LAYER26, format_lbws, get_lbw_block_index
+from tqdm import tqdm
 
 setup_logging()
 import logging
@@ -53,7 +54,9 @@ def detect_method_from_training_model(models, dtype):
                 return "OFT"
 
 
-def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, merge_dtype):
+def merge_to_sd_model(
+    text_encoder1, text_encoder2, unet, models, ratios, lbws, merge_dtype
+):
     text_encoder1.to(merge_dtype)
     text_encoder2.to(merge_dtype)
     unet.to(merge_dtype)
@@ -76,23 +79,30 @@ def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, 
                     prefix = lora.LoRANetwork.LORA_PREFIX_TEXT_ENCODER1
                 else:
                     prefix = lora.LoRANetwork.LORA_PREFIX_TEXT_ENCODER2
-                target_replace_modules = lora.LoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE
+                target_replace_modules = (
+                    lora.LoRANetwork.TEXT_ENCODER_TARGET_REPLACE_MODULE
+                )
             else:
                 prefix = lora.LoRANetwork.LORA_PREFIX_UNET
                 target_replace_modules = (
-                    lora.LoRANetwork.UNET_TARGET_REPLACE_MODULE + lora.LoRANetwork.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+                    lora.LoRANetwork.UNET_TARGET_REPLACE_MODULE
+                    + lora.LoRANetwork.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
                 )
         elif method == "OFT":
             prefix = oft.OFTNetwork.OFT_PREFIX_UNET
             # ALL_LINEAR includes ATTN_ONLY, so we don't need to specify ATTN_ONLY
             target_replace_modules = (
-                oft.OFTNetwork.UNET_TARGET_REPLACE_MODULE_ALL_LINEAR + oft.OFTNetwork.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
+                oft.OFTNetwork.UNET_TARGET_REPLACE_MODULE_ALL_LINEAR
+                + oft.OFTNetwork.UNET_TARGET_REPLACE_MODULE_CONV2D_3X3
             )
 
         for name, module in root_module.named_modules():
             if module.__class__.__name__ in target_replace_modules:
                 for child_name, child_module in module.named_modules():
-                    if child_module.__class__.__name__ == "Linear" or child_module.__class__.__name__ == "Conv2d":
+                    if (
+                        child_module.__class__.__name__ == "Linear"
+                        or child_module.__class__.__name__ == "Conv2d"
+                    ):
                         lora_name = prefix + "." + name + "." + child_name
                         lora_name = lora_name.replace(".", "_")
                         name_to_module[lora_name] = child_module
@@ -116,7 +126,9 @@ def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, 
                     alpha_key = key[: key.index("lora_down")] + "alpha"
 
                     # find original module for this lora
-                    module_name = ".".join(key.split(".")[:-2])  # remove trailing ".lora_down.weight"
+                    module_name = ".".join(
+                        key.split(".")[:-2]
+                    )  # remove trailing ".lora_down.weight"
                     if module_name not in name_to_module:
                         logger.info(f"no module found for LoRA weight: {key}")
                         continue
@@ -134,7 +146,9 @@ def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, 
                         index = get_lbw_block_index(key, True)
                         is_lbw_target = index in LBW_TARGET_IDX
                         if is_lbw_target:
-                            scale *= lbw_weights[index]  # keyがlbwの対象であれば、lbwの重みを掛ける
+                            scale *= lbw_weights[
+                                index
+                            ]  # keyがlbwの対象であれば、lbwの重みを掛ける
 
                     # W <- W + U * D
                     weight = module.weight
@@ -147,12 +161,19 @@ def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, 
                         weight = (
                             weight
                             + ratio
-                            * (up_weight.squeeze(3).squeeze(2) @ down_weight.squeeze(3).squeeze(2)).unsqueeze(2).unsqueeze(3)
+                            * (
+                                up_weight.squeeze(3).squeeze(2)
+                                @ down_weight.squeeze(3).squeeze(2)
+                            )
+                            .unsqueeze(2)
+                            .unsqueeze(3)
                             * scale
                         )
                     else:
                         # conv2d 3x3
-                        conved = torch.nn.functional.conv2d(down_weight.permute(1, 0, 2, 3), up_weight).permute(1, 0, 2, 3)
+                        conved = torch.nn.functional.conv2d(
+                            down_weight.permute(1, 0, 2, 3), up_weight
+                        ).permute(1, 0, 2, 3)
                         # logger.info(conved.size(), weight.size(), module.stride, module.padding)
                         weight = weight + ratio * conved * scale
 
@@ -208,7 +229,11 @@ def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, 
                 norm_Q = torch.norm(block_Q.flatten())
                 new_norm_Q = torch.clamp(norm_Q, max=constraint)
                 block_Q = block_Q * ((new_norm_Q + 1e-8) / (norm_Q + 1e-8))
-                I = torch.eye(block_size, device=oft_blocks.device).unsqueeze(0).repeat(num_blocks, 1, 1)
+                I = (
+                    torch.eye(block_size, device=oft_blocks.device)
+                    .unsqueeze(0)
+                    .repeat(num_blocks, 1, 1)
+                )
                 block_R = torch.matmul(I + block_Q, (I - block_Q).inverse())
                 block_R_weighted = multiplier * block_R + (1 - multiplier) * I
                 R = torch.block_diag(*block_R_weighted)
@@ -224,14 +249,23 @@ def merge_to_sd_model(text_encoder1, text_encoder2, unet, models, ratios, lbws, 
                 else:
                     weight = torch.einsum("oi, op -> pi", org_weight, R)
 
-                weight = weight.contiguous()  # Make Tensor contiguous; required due to ThreadPoolExecutor
+                weight = (
+                    weight.contiguous()
+                )  # Make Tensor contiguous; required due to ThreadPoolExecutor
 
                 module.weight = torch.nn.Parameter(weight)
 
             # TODO multi-threading may cause OOM on CPU if cpu_count is too high and RAM is not enough
             max_workers = 1 if device.type != "cpu" else None  # avoid OOM on GPU
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                list(tqdm(executor.map(merge_to, lora_sd.keys()), total=len(lora_sd.keys())))
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=max_workers
+            ) as executor:
+                list(
+                    tqdm(
+                        executor.map(merge_to, lora_sd.keys()),
+                        total=len(lora_sd.keys()),
+                    )
+                )
 
 
 def merge_lora_models(models, ratios, lbws, merge_dtype, concat=False, shuffle=False):
@@ -265,9 +299,13 @@ def merge_lora_models(models, ratios, lbws, merge_dtype, concat=False, shuffle=F
 
         if lora_metadata is not None:
             if v2 is None:
-                v2 = lora_metadata.get(train_util.SS_METADATA_KEY_V2, None)  # returns string, SDXLはv2がないのでFalseのはず
+                v2 = lora_metadata.get(
+                    train_util.SS_METADATA_KEY_V2, None
+                )  # returns string, SDXLはv2がないのでFalseのはず
             if base_model is None:
-                base_model = lora_metadata.get(train_util.SS_METADATA_KEY_BASE_MODEL_VERSION, None)
+                base_model = lora_metadata.get(
+                    train_util.SS_METADATA_KEY_BASE_MODEL_VERSION, None
+                )
 
         # get alpha and dim
         alphas = {}  # alpha for current model
@@ -293,7 +331,9 @@ def merge_lora_models(models, ratios, lbws, merge_dtype, concat=False, shuffle=F
                 if lora_module_name not in base_alphas:
                     base_alphas[lora_module_name] = alpha
 
-        logger.info(f"dim: {list(set(dims.values()))}, alpha: {list(set(alphas.values()))}")
+        logger.info(
+            f"dim: {list(set(dims.values()))}, alpha: {list(set(alphas.values()))}"
+        )
 
         # merge
         logger.info(f"merging...")
@@ -314,20 +354,27 @@ def merge_lora_models(models, ratios, lbws, merge_dtype, concat=False, shuffle=F
             alpha = alphas[lora_module_name]
 
             scale = math.sqrt(alpha / base_alpha) * ratio
-            scale = abs(scale) if "lora_up" in key else scale  # マイナスの重みに対応する。
+            scale = (
+                abs(scale) if "lora_up" in key else scale
+            )  # マイナスの重みに対応する。
 
             if lbw:
                 index = get_lbw_block_index(key, True)
                 is_lbw_target = index in LBW_TARGET_IDX
                 if is_lbw_target:
-                    scale *= lbw_weights[index]  # keyがlbwの対象であれば、lbwの重みを掛ける
+                    scale *= lbw_weights[
+                        index
+                    ]  # keyがlbwの対象であれば、lbwの重みを掛ける
 
             if key in merged_sd:
                 assert (
-                    merged_sd[key].size() == lora_sd[key].size() or concat_dim is not None
+                    merged_sd[key].size() == lora_sd[key].size()
+                    or concat_dim is not None
                 ), f"weights shape mismatch merging v1 and v2, different dims? / 重みのサイズが合いません。v1とv2、または次元数の異なるモデルはマージできません"
                 if concat_dim is not None:
-                    merged_sd[key] = torch.cat([merged_sd[key], lora_sd[key] * scale], dim=concat_dim)
+                    merged_sd[key] = torch.cat(
+                        [merged_sd[key], lora_sd[key] * scale], dim=concat_dim
+                    )
                 else:
                     merged_sd[key] = merged_sd[key] + lora_sd[key] * scale
             else:
@@ -346,7 +393,9 @@ def merge_lora_models(models, ratios, lbws, merge_dtype, concat=False, shuffle=F
             merged_sd[key_up] = merged_sd[key_up][:, perm]
 
     logger.info("merged model")
-    logger.info(f"dim: {list(set(base_dims.values()))}, alpha: {list(set(base_alphas.values()))}")
+    logger.info(
+        f"dim: {list(set(base_dims.values()))}, alpha: {list(set(base_alphas.values()))}"
+    )
 
     # check all dims are same
     dims_list = list(set(base_dims.values()))
@@ -365,7 +414,9 @@ def merge_lora_models(models, ratios, lbws, merge_dtype, concat=False, shuffle=F
     # build minimum metadata
     dims = f"{dims_list[0]}" if all_same_dims else "Dynamic"
     alphas = f"{alphas_list[0]}" if all_same_alphas else "Dynamic"
-    metadata = train_util.build_minimum_network_metadata(v2, base_model, "networks.lora", dims, alphas, None)
+    metadata = train_util.build_minimum_network_metadata(
+        v2, base_model, "networks.lora", dims, alphas, None
+    )
 
     return merged_sd, metadata
 
@@ -405,35 +456,73 @@ def merge(args):
             unet,
             logit_scale,
             ckpt_info,
-        ) = sdxl_model_util.load_models_from_sdxl_checkpoint(sdxl_model_util.MODEL_VERSION_SDXL_BASE_V1_0, args.sd_model, "cpu")
+        ) = sdxl_model_util.load_models_from_sdxl_checkpoint(
+            sdxl_model_util.MODEL_VERSION_SDXL_BASE_V1_0, args.sd_model, "cpu"
+        )
 
-        merge_to_sd_model(text_model1, text_model2, unet, args.models, args.ratios, args.lbws, merge_dtype)
+        merge_to_sd_model(
+            text_model1,
+            text_model2,
+            unet,
+            args.models,
+            args.ratios,
+            args.lbws,
+            merge_dtype,
+        )
 
         if args.no_metadata:
             sai_metadata = None
         else:
-            merged_from = sai_model_spec.build_merged_from([args.sd_model] + args.models)
+            merged_from = sai_model_spec.build_merged_from(
+                [args.sd_model] + args.models
+            )
             title = os.path.splitext(os.path.basename(args.save_to))[0]
             sai_metadata = sai_model_spec.build_metadata(
-                None, False, False, True, False, False, time.time(), title=title, merged_from=merged_from
+                None,
+                False,
+                False,
+                True,
+                False,
+                False,
+                time.time(),
+                title=title,
+                merged_from=merged_from,
             )
 
         logger.info(f"saving SD model to: {args.save_to}")
         sdxl_model_util.save_stable_diffusion_checkpoint(
-            args.save_to, text_model1, text_model2, unet, 0, 0, ckpt_info, vae, logit_scale, sai_metadata, save_dtype
+            args.save_to,
+            text_model1,
+            text_model2,
+            unet,
+            0,
+            0,
+            ckpt_info,
+            vae,
+            logit_scale,
+            sai_metadata,
+            save_dtype,
         )
     else:
-        state_dict, metadata = merge_lora_models(args.models, args.ratios, args.lbws, merge_dtype, args.concat, args.shuffle)
+        state_dict, metadata = merge_lora_models(
+            args.models, args.ratios, args.lbws, merge_dtype, args.concat, args.shuffle
+        )
 
         # cast to save_dtype before calculating hashes
         for key in list(state_dict.keys()):
             value = state_dict[key]
-            if type(value) == torch.Tensor and value.dtype.is_floating_point and value.dtype != save_dtype:
+            if (
+                type(value) == torch.Tensor
+                and value.dtype.is_floating_point
+                and value.dtype != save_dtype
+            ):
                 state_dict[key] = value.to(save_dtype)
 
         logger.info(f"calculating hashes and creating metadata...")
 
-        model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(state_dict, metadata)
+        model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+            state_dict, metadata
+        )
         metadata["sshs_model_hash"] = model_hash
         metadata["sshs_legacy_hash"] = legacy_hash
 
@@ -441,7 +530,15 @@ def merge(args):
             merged_from = sai_model_spec.build_merged_from(args.models)
             title = os.path.splitext(os.path.basename(args.save_to))[0]
             sai_metadata = sai_model_spec.build_metadata(
-                state_dict, False, False, True, True, False, time.time(), title=title, merged_from=merged_from
+                state_dict,
+                False,
+                False,
+                True,
+                True,
+                False,
+                time.time(),
+                title=title,
+                merged_from=merged_from,
             )
             metadata.update(sai_metadata)
 
@@ -483,8 +580,18 @@ def setup_parser() -> argparse.ArgumentParser:
         nargs="*",
         help="LoRA models to merge: ckpt or safetensors file / マージするLoRAモデル、ckptまたはsafetensors",
     )
-    parser.add_argument("--ratios", type=float, nargs="*", help="ratios for each model / それぞれのLoRAモデルの比率")
-    parser.add_argument("--lbws", type=str, nargs="*", help="lbw for each model / それぞれのLoRAモデルの層別適用率")
+    parser.add_argument(
+        "--ratios",
+        type=float,
+        nargs="*",
+        help="ratios for each model / それぞれのLoRAモデルの比率",
+    )
+    parser.add_argument(
+        "--lbws",
+        type=str,
+        nargs="*",
+        help="lbw for each model / それぞれのLoRAモデルの層別適用率",
+    )
     parser.add_argument(
         "--no_metadata",
         action="store_true",

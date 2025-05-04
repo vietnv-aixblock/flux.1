@@ -2,22 +2,25 @@
 
 import math
 import os
+import re
 from typing import Dict, List, Optional, Tuple, Type, Union
-from diffusers import AutoencoderKL
+
 import einops
-from transformers import CLIPTextModel
 import numpy as np
 import torch
 import torch.nn.functional as F
-import re
+from diffusers import AutoencoderKL
 from library.utils import setup_logging
+from transformers import CLIPTextModel
 
 setup_logging()
 import logging
 
 logger = logging.getLogger(__name__)
 
-RE_UPDOWN = re.compile(r"(up|down)_blocks_(\d+)_(resnets|upsamplers|downsamplers|attentions)_(\d+)_")
+RE_UPDOWN = re.compile(
+    r"(up|down)_blocks_(\d+)_(resnets|upsamplers|downsamplers|attentions)_(\d+)_"
+)
 
 
 class OFTModule(torch.nn.Module):
@@ -49,16 +52,20 @@ class OFTModule(torch.nn.Module):
 
         if type(alpha) == torch.Tensor:
             alpha = alpha.detach().numpy()
-        
+
         # constraint in original paper is alpha * out_dim * out_dim, but we use alpha * out_dim for backward compatibility
         # original alpha is 1e-5, so we use 1e-2 or 1e-4 for alpha
-        self.constraint = alpha * out_dim 
-        
+        self.constraint = alpha * out_dim
+
         self.register_buffer("alpha", torch.tensor(alpha))
 
         self.block_size = out_dim // self.num_blocks
-        self.oft_blocks = torch.nn.Parameter(torch.zeros(self.num_blocks, self.block_size, self.block_size))
-        self.I = torch.eye(self.block_size).unsqueeze(0).repeat(self.num_blocks, 1, 1)  # cpu
+        self.oft_blocks = torch.nn.Parameter(
+            torch.zeros(self.num_blocks, self.block_size, self.block_size)
+        )
+        self.I = (
+            torch.eye(self.block_size).unsqueeze(0).repeat(self.num_blocks, 1, 1)
+        )  # cpu
 
         self.out_dim = out_dim
         self.shape = org_module.weight.shape
@@ -96,14 +103,24 @@ class OFTModule(torch.nn.Module):
         W = org_module.weight.to(torch.float32)
 
         if len(W.shape) == 4:  # Conv2d
-            W_reshaped = einops.rearrange(W, "(k n) ... -> k n ...", k=self.num_blocks, n=self.block_size)
+            W_reshaped = einops.rearrange(
+                W, "(k n) ... -> k n ...", k=self.num_blocks, n=self.block_size
+            )
             RW = torch.einsum("k n m, k n ... -> k m ...", R, W_reshaped)
             RW = einops.rearrange(RW, "k m ... -> (k m) ...")
             result = F.conv2d(
-                x, RW.to(org_dtype), org_module.bias, org_module.stride, org_module.padding, org_module.dilation, org_module.groups
+                x,
+                RW.to(org_dtype),
+                org_module.bias,
+                org_module.stride,
+                org_module.padding,
+                org_module.dilation,
+                org_module.groups,
             )
         else:  # Linear
-            W_reshaped = einops.rearrange(W, "(k n) m -> k n m", k=self.num_blocks, n=self.block_size)
+            W_reshaped = einops.rearrange(
+                W, "(k n) m -> k n m", k=self.num_blocks, n=self.block_size
+            )
             RW = torch.einsum("k n m, k n p -> k m p", R, W_reshaped)
             RW = einops.rearrange(RW, "k m p -> (k m) p")
             result = F.linear(x, RW.to(org_dtype), org_module.bias)
@@ -196,7 +213,16 @@ def create_network(
 
 
 # Create network from weights for inference, weights are not loaded here (because can be merged)
-def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weights_sd=None, for_inference=False, **kwargs):
+def create_network_from_weights(
+    multiplier,
+    file,
+    vae,
+    text_encoder,
+    unet,
+    weights_sd=None,
+    for_inference=False,
+    **kwargs,
+):
     if weights_sd is None:
         if os.path.splitext(file)[1] == ".safetensors":
             from safetensors.torch import load_file, safe_open
@@ -221,7 +247,12 @@ def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weigh
                 has_conv2d = True
             if all_linear is None and "_ff_" in name:
                 all_linear = True
-        if dim is not None and alpha is not None and has_conv2d is not None and all_linear is not None:
+        if (
+            dim is not None
+            and alpha is not None
+            and has_conv2d is not None
+            and all_linear is not None
+        ):
             break
     if has_conv2d is None:
         has_conv2d = False
@@ -245,7 +276,11 @@ def create_network_from_weights(multiplier, file, vae, text_encoder, unet, weigh
 class OFTNetwork(torch.nn.Module):
     UNET_TARGET_REPLACE_MODULE_ATTN_ONLY = ["CrossAttention"]
     UNET_TARGET_REPLACE_MODULE_ALL_LINEAR = ["Transformer2DModel"]
-    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = ["ResnetBlock2D", "Downsample2D", "Upsample2D"]
+    UNET_TARGET_REPLACE_MODULE_CONV2D_3X3 = [
+        "ResnetBlock2D",
+        "Downsample2D",
+        "Upsample2D",
+    ]
     OFT_PREFIX_UNET = "oft_unet"  # これ変えないほうがいいかな
 
     def __init__(
@@ -407,13 +442,15 @@ class OFTNetwork(torch.nn.Module):
                 state_dict[key] = v
 
         if os.path.splitext(file)[1] == ".safetensors":
-            from safetensors.torch import save_file
             from library import train_util
+            from safetensors.torch import save_file
 
             # Precalculate model hashes to save time on indexing
             if metadata is None:
                 metadata = {}
-            model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(state_dict, metadata)
+            model_hash, legacy_hash = train_util.precalculate_safetensors_hashes(
+                state_dict, metadata
+            )
             metadata["sshs_model_hash"] = model_hash
             metadata["sshs_legacy_hash"] = legacy_hash
 

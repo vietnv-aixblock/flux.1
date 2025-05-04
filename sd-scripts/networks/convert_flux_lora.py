@@ -109,12 +109,11 @@ double_blocks.0.processor.qkv_lora2.up.weight torch.Size([9216, 16])
 
 
 import argparse
-from safetensors.torch import save_file
-from safetensors import safe_open
+
 import torch
-
-
 from library.utils import setup_logging
+from safetensors import safe_open
+from safetensors.torch import save_file
 
 setup_logging()
 import logging
@@ -132,7 +131,9 @@ def convert_to_sd_scripts(sds_sd, ait_sd, sds_key, ait_key):
     sds_sd[sds_key + ".lora_down.weight"] = down_weight
     sds_sd[sds_key + ".lora_up.weight"] = ait_sd.pop(ait_up_key)
     rank = down_weight.shape[0]
-    sds_sd[sds_key + ".alpha"] = torch.scalar_tensor(rank, dtype=down_weight.dtype, device=down_weight.device)
+    sds_sd[sds_key + ".alpha"] = torch.scalar_tensor(
+        rank, dtype=down_weight.dtype, device=down_weight.device
+    )
 
 
 def convert_to_sd_scripts_cat(sds_sd, ait_sd, sds_key, ait_keys):
@@ -157,21 +158,28 @@ def convert_to_sd_scripts_cat(sds_sd, ait_sd, sds_key, ait_keys):
 
     i = 0
     for j, up_weight in enumerate(up_weights):
-        merged_up_weights[i : i + up_weight.shape[0], j * rank : (j + 1) * rank] = up_weight
+        merged_up_weights[i : i + up_weight.shape[0], j * rank : (j + 1) * rank] = (
+            up_weight
+        )
         i += up_weight.shape[0]
 
     sds_sd[sds_key + ".lora_up.weight"] = merged_up_weights
 
     # set alpha to new_rank
     new_rank = rank * num_splits
-    sds_sd[sds_key + ".alpha"] = torch.scalar_tensor(new_rank, dtype=down_weights[0].dtype, device=down_weights[0].device)
+    sds_sd[sds_key + ".alpha"] = torch.scalar_tensor(
+        new_rank, dtype=down_weights[0].dtype, device=down_weights[0].device
+    )
 
 
 def convert_ai_toolkit_to_sd_scripts(ait_sd):
     sds_sd = {}
     for i in range(19):
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_attn_proj", f"transformer.transformer_blocks.{i}.attn.to_out.0"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_attn_proj",
+            f"transformer.transformer_blocks.{i}.attn.to_out.0",
         )
         convert_to_sd_scripts_cat(
             sds_sd,
@@ -184,16 +192,28 @@ def convert_ai_toolkit_to_sd_scripts(ait_sd):
             ],
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_mlp_0", f"transformer.transformer_blocks.{i}.ff.net.0.proj"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_mlp_0",
+            f"transformer.transformer_blocks.{i}.ff.net.0.proj",
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_mlp_2", f"transformer.transformer_blocks.{i}.ff.net.2"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_mlp_2",
+            f"transformer.transformer_blocks.{i}.ff.net.2",
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_mod_lin", f"transformer.transformer_blocks.{i}.norm1.linear"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_mod_lin",
+            f"transformer.transformer_blocks.{i}.norm1.linear",
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_attn_proj", f"transformer.transformer_blocks.{i}.attn.to_add_out"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_attn_proj",
+            f"transformer.transformer_blocks.{i}.attn.to_add_out",
         )
         convert_to_sd_scripts_cat(
             sds_sd,
@@ -206,13 +226,22 @@ def convert_ai_toolkit_to_sd_scripts(ait_sd):
             ],
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_mlp_0", f"transformer.transformer_blocks.{i}.ff_context.net.0.proj"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_mlp_0",
+            f"transformer.transformer_blocks.{i}.ff_context.net.0.proj",
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_mlp_2", f"transformer.transformer_blocks.{i}.ff_context.net.2"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_mlp_2",
+            f"transformer.transformer_blocks.{i}.ff_context.net.2",
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_mod_lin", f"transformer.transformer_blocks.{i}.norm1_context.linear"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_mod_lin",
+            f"transformer.transformer_blocks.{i}.norm1_context.linear",
         )
 
     for i in range(38):
@@ -228,10 +257,16 @@ def convert_ai_toolkit_to_sd_scripts(ait_sd):
             ],
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_single_blocks_{i}_linear2", f"transformer.single_transformer_blocks.{i}.proj_out"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_single_blocks_{i}_linear2",
+            f"transformer.single_transformer_blocks.{i}.proj_out",
         )
         convert_to_sd_scripts(
-            sds_sd, ait_sd, f"lora_unet_single_blocks_{i}_modulation_lin", f"transformer.single_transformer_blocks.{i}.norm.linear"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_single_blocks_{i}_modulation_lin",
+            f"transformer.single_transformer_blocks.{i}.norm.linear",
         )
 
     if len(ait_sd) > 0:
@@ -247,7 +282,9 @@ def convert_to_ai_toolkit(sds_sd, ait_sd, sds_key, ait_key):
     # scale weight by alpha and dim
     rank = down_weight.shape[0]
     alpha = sds_sd.pop(sds_key + ".alpha").item()  # alpha is scalar
-    scale = alpha / rank  # LoRA is scaled by 'alpha / rank' in forward pass, so we need to scale it back here
+    scale = (
+        alpha / rank
+    )  # LoRA is scaled by 'alpha / rank' in forward pass, so we need to scale it back here
     # print(f"rank: {rank}, alpha: {alpha}, scale: {scale}")
 
     # calculate scale_down and scale_up to keep the same value. if scale is 4, scale_down is 2 and scale_up is 2
@@ -259,7 +296,9 @@ def convert_to_ai_toolkit(sds_sd, ait_sd, sds_key, ait_key):
     # print(f"scale: {scale}, scale_down: {scale_down}, scale_up: {scale_up}")
 
     ait_sd[ait_key + ".lora_A.weight"] = down_weight * scale_down
-    ait_sd[ait_key + ".lora_B.weight"] = sds_sd.pop(sds_key + ".lora_up.weight") * scale_up
+    ait_sd[ait_key + ".lora_B.weight"] = (
+        sds_sd.pop(sds_key + ".lora_up.weight") * scale_up
+    )
 
 
 def convert_to_ai_toolkit_cat(sds_sd, ait_sd, sds_key, ait_keys, dims=None):
@@ -300,7 +339,9 @@ def convert_to_ai_toolkit_cat(sds_sd, ait_sd, sds_key, ait_keys, dims=None):
             for k in range(len(dims)):
                 if j == k:
                     continue
-                is_sparse = is_sparse and torch.all(up_weight[i : i + dims[j], k * ait_rank : (k + 1) * ait_rank] == 0)
+                is_sparse = is_sparse and torch.all(
+                    up_weight[i : i + dims[j], k * ait_rank : (k + 1) * ait_rank] == 0
+                )
             i += dims[j]
         if is_sparse:
             logger.info(f"weight is sparse: {sds_key}")
@@ -313,15 +354,26 @@ def convert_to_ai_toolkit_cat(sds_sd, ait_sd, sds_key, ait_keys, dims=None):
         ait_sd.update({k: down_weight for k in ait_down_keys})
 
         # up_weight is split to each split
-        ait_sd.update({k: v for k, v in zip(ait_up_keys, torch.split(up_weight, dims, dim=0))})
+        ait_sd.update(
+            {k: v for k, v in zip(ait_up_keys, torch.split(up_weight, dims, dim=0))}
+        )
     else:
         # down_weight is chunked to each split
-        ait_sd.update({k: v for k, v in zip(ait_down_keys, torch.chunk(down_weight, num_splits, dim=0))})
+        ait_sd.update(
+            {
+                k: v
+                for k, v in zip(
+                    ait_down_keys, torch.chunk(down_weight, num_splits, dim=0)
+                )
+            }
+        )
 
         # up_weight is sparse: only non-zero values are copied to each split
         i = 0
         for j in range(len(dims)):
-            ait_sd[ait_up_keys[j]] = up_weight[i : i + dims[j], j * ait_rank : (j + 1) * ait_rank].contiguous()
+            ait_sd[ait_up_keys[j]] = up_weight[
+                i : i + dims[j], j * ait_rank : (j + 1) * ait_rank
+            ].contiguous()
             i += dims[j]
 
 
@@ -329,7 +381,10 @@ def convert_sd_scripts_to_ai_toolkit(sds_sd):
     ait_sd = {}
     for i in range(19):
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_attn_proj", f"transformer.transformer_blocks.{i}.attn.to_out.0"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_attn_proj",
+            f"transformer.transformer_blocks.{i}.attn.to_out.0",
         )
         convert_to_ai_toolkit_cat(
             sds_sd,
@@ -342,16 +397,28 @@ def convert_sd_scripts_to_ai_toolkit(sds_sd):
             ],
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_mlp_0", f"transformer.transformer_blocks.{i}.ff.net.0.proj"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_mlp_0",
+            f"transformer.transformer_blocks.{i}.ff.net.0.proj",
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_mlp_2", f"transformer.transformer_blocks.{i}.ff.net.2"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_mlp_2",
+            f"transformer.transformer_blocks.{i}.ff.net.2",
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_img_mod_lin", f"transformer.transformer_blocks.{i}.norm1.linear"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_img_mod_lin",
+            f"transformer.transformer_blocks.{i}.norm1.linear",
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_attn_proj", f"transformer.transformer_blocks.{i}.attn.to_add_out"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_attn_proj",
+            f"transformer.transformer_blocks.{i}.attn.to_add_out",
         )
         convert_to_ai_toolkit_cat(
             sds_sd,
@@ -364,13 +431,22 @@ def convert_sd_scripts_to_ai_toolkit(sds_sd):
             ],
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_mlp_0", f"transformer.transformer_blocks.{i}.ff_context.net.0.proj"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_mlp_0",
+            f"transformer.transformer_blocks.{i}.ff_context.net.0.proj",
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_mlp_2", f"transformer.transformer_blocks.{i}.ff_context.net.2"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_mlp_2",
+            f"transformer.transformer_blocks.{i}.ff_context.net.2",
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_double_blocks_{i}_txt_mod_lin", f"transformer.transformer_blocks.{i}.norm1_context.linear"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_double_blocks_{i}_txt_mod_lin",
+            f"transformer.transformer_blocks.{i}.norm1_context.linear",
         )
 
     for i in range(38):
@@ -387,10 +463,16 @@ def convert_sd_scripts_to_ai_toolkit(sds_sd):
             dims=[3072, 3072, 3072, 12288],
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_single_blocks_{i}_linear2", f"transformer.single_transformer_blocks.{i}.proj_out"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_single_blocks_{i}_linear2",
+            f"transformer.single_transformer_blocks.{i}.proj_out",
         )
         convert_to_ai_toolkit(
-            sds_sd, ait_sd, f"lora_unet_single_blocks_{i}_modulation_lin", f"transformer.single_transformer_blocks.{i}.norm.linear"
+            sds_sd,
+            ait_sd,
+            f"lora_unet_single_blocks_{i}_modulation_lin",
+            f"transformer.single_transformer_blocks.{i}.norm.linear",
         )
 
     if len(sds_sd) > 0:
@@ -413,11 +495,13 @@ def main(args):
     elif args.src == "sd-scripts" and args.dst == "ai-toolkit":
         state_dict = convert_sd_scripts_to_ai_toolkit(state_dict)
 
-        # eliminate 'shared tensors' 
+        # eliminate 'shared tensors'
         for k in list(state_dict.keys()):
             state_dict[k] = state_dict[k].detach().clone()
     else:
-        raise NotImplementedError(f"Conversion from {args.src} to {args.dst} is not supported")
+        raise NotImplementedError(
+            f"Conversion from {args.src} to {args.dst} is not supported"
+        )
 
     # save destination safetensors
     logger.info(f"Saving destination file {args.dst_path}")
@@ -426,8 +510,18 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert LoRA format")
-    parser.add_argument("--src", type=str, default="ai-toolkit", help="source format, ai-toolkit or sd-scripts")
-    parser.add_argument("--dst", type=str, default="sd-scripts", help="destination format, ai-toolkit or sd-scripts")
+    parser.add_argument(
+        "--src",
+        type=str,
+        default="ai-toolkit",
+        help="source format, ai-toolkit or sd-scripts",
+    )
+    parser.add_argument(
+        "--dst",
+        type=str,
+        default="sd-scripts",
+        help="destination format, ai-toolkit or sd-scripts",
+    )
     parser.add_argument("--src_path", type=str, default=None, help="source path")
     parser.add_argument("--dst_path", type=str, default=None, help="destination path")
     args = parser.parse_args()

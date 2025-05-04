@@ -6,17 +6,16 @@ import math
 import os
 import random
 from typing import Optional, Tuple
+
 import numpy as np
-
 import torch
-from safetensors.torch import safe_open, load_file
 import torch.amp
-from tqdm import tqdm
-from PIL import Image
-from transformers import CLIPTextModelWithProjection, T5EncoderModel
-
-from library.device_utils import init_ipex, get_preferred_device
+from library.device_utils import get_preferred_device, init_ipex
 from networks import lora_sd3
+from PIL import Image
+from safetensors.torch import load_file, safe_open
+from tqdm import tqdm
+from transformers import CLIPTextModelWithProjection, T5EncoderModel
 
 init_ipex()
 
@@ -35,7 +34,13 @@ def get_noise(seed, latent, device="cpu"):
     # generator = torch.manual_seed(seed)
     generator = torch.Generator(device)
     generator.manual_seed(seed)
-    return torch.randn(latent.size(), dtype=latent.dtype, layout=latent.layout, generator=generator, device=device)
+    return torch.randn(
+        latent.size(),
+        dtype=latent.dtype,
+        layout=latent.layout,
+        generator=generator,
+        device=device,
+    )
 
 
 def get_sigmas(sampling: sd3_utils.ModelSamplingDiscreteFlow, steps):
@@ -88,7 +93,9 @@ def do_sample(
     # neg_cond = fix_cond(neg_cond)
     # extra_args = {"cond": cond, "uncond": neg_cond, "cond_scale": guidance_scale}
 
-    noise_scaled = model_sampling.noise_scaling(sigmas[0], noise, latent, max_denoise(model_sampling, sigmas))
+    noise_scaled = model_sampling.noise_scaling(
+        sigmas[0], noise, latent, max_denoise(model_sampling, sigmas)
+    )
 
     c_crossattn = torch.cat([cond[0], neg_cond[0]]).to(device).to(dtype)
     y = torch.cat([cond[1], neg_cond[1]]).to(device).to(dtype)
@@ -158,14 +165,26 @@ def generate_image(
 
     with torch.autocast(device_type=device.type, dtype=mmdit.dtype), torch.no_grad():
         tokens_and_masks = tokenize_strategy.tokenize(prompt)
-        lg_out, t5_out, pooled, l_attn_mask, g_attn_mask, t5_attn_mask = encoding_strategy.encode_tokens(
-            tokenize_strategy, [clip_l, clip_g, t5xxl], tokens_and_masks, args.apply_lg_attn_mask, args.apply_t5_attn_mask
+        lg_out, t5_out, pooled, l_attn_mask, g_attn_mask, t5_attn_mask = (
+            encoding_strategy.encode_tokens(
+                tokenize_strategy,
+                [clip_l, clip_g, t5xxl],
+                tokens_and_masks,
+                args.apply_lg_attn_mask,
+                args.apply_t5_attn_mask,
+            )
         )
         cond = encoding_strategy.concat_encodings(lg_out, t5_out, pooled)
 
         tokens_and_masks = tokenize_strategy.tokenize(negative_prompt)
-        lg_out, t5_out, pooled, neg_l_attn_mask, neg_g_attn_mask, neg_t5_attn_mask = encoding_strategy.encode_tokens(
-            tokenize_strategy, [clip_l, clip_g, t5xxl], tokens_and_masks, args.apply_lg_attn_mask, args.apply_t5_attn_mask
+        lg_out, t5_out, pooled, neg_l_attn_mask, neg_g_attn_mask, neg_t5_attn_mask = (
+            encoding_strategy.encode_tokens(
+                tokenize_strategy,
+                [clip_l, clip_g, t5xxl],
+                tokens_and_masks,
+                args.apply_lg_attn_mask,
+                args.apply_t5_attn_mask,
+            )
         )
         neg_cond = encoding_strategy.concat_encodings(lg_out, t5_out, pooled)
 
@@ -179,7 +198,19 @@ def generate_image(
     # generate image
     logger.info("Generating image...")
     mmdit.to(device)
-    latent_sampled = do_sample(target_height, target_width, None, seed, cond, neg_cond, mmdit, steps, cfg_scale, sd3_dtype, device)
+    latent_sampled = do_sample(
+        target_height,
+        target_width,
+        None,
+        seed,
+        cond,
+        neg_cond,
+        mmdit,
+        steps,
+        cfg_scale,
+        sd3_dtype,
+        device,
+    )
     if args.offload:
         mmdit.to("cpu")
 
@@ -200,7 +231,9 @@ def generate_image(
     # save image
     output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png")
+    output_path = os.path.join(
+        output_dir, f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+    )
     out_image.save(output_path)
 
     logger.info(f"Saved image to {output_path}")
@@ -221,7 +254,12 @@ if __name__ == "__main__":
     parser.add_argument("--clip_g", type=str, required=False)
     parser.add_argument("--clip_l", type=str, required=False)
     parser.add_argument("--t5xxl", type=str, required=False)
-    parser.add_argument("--t5xxl_token_length", type=int, default=256, help="t5xxl token length, default: 256")
+    parser.add_argument(
+        "--t5xxl_token_length",
+        type=int,
+        default=256,
+        help="t5xxl token length, default: 256",
+    )
     parser.add_argument("--apply_lg_attn_mask", action="store_true")
     parser.add_argument("--apply_t5_attn_mask", action="store_true")
     parser.add_argument("--prompt", type=str, default="A photo of a cat")
@@ -243,7 +281,9 @@ if __name__ == "__main__":
         default=[],
         help="LoRA weights, only supports networks.lora_sd3, each argument is a `path;multiplier` (semi-colon separated)",
     )
-    parser.add_argument("--merge_lora_weights", action="store_true", help="Merge LoRA weights to model")
+    parser.add_argument(
+        "--merge_lora_weights", action="store_true", help="Merge LoRA weights to model"
+    )
     parser.add_argument("--width", type=int, default=target_width)
     parser.add_argument("--height", type=int, default=target_height)
     parser.add_argument("--interactive", action="store_true")
@@ -263,12 +303,20 @@ if __name__ == "__main__":
     # load state dict
     logger.info(f"Loading SD3 models from {args.ckpt_path}...")
     # state_dict = load_file(args.ckpt_path)
-    state_dict = load_safetensors(args.ckpt_path, loading_device, disable_mmap=True, dtype=sd3_dtype)
+    state_dict = load_safetensors(
+        args.ckpt_path, loading_device, disable_mmap=True, dtype=sd3_dtype
+    )
 
     # load text encoders
-    clip_l = sd3_utils.load_clip_l(args.clip_l, sd3_dtype, loading_device, state_dict=state_dict)
-    clip_g = sd3_utils.load_clip_g(args.clip_g, sd3_dtype, loading_device, state_dict=state_dict)
-    t5xxl = sd3_utils.load_t5xxl(args.t5xxl, sd3_dtype, loading_device, state_dict=state_dict)
+    clip_l = sd3_utils.load_clip_l(
+        args.clip_l, sd3_dtype, loading_device, state_dict=state_dict
+    )
+    clip_g = sd3_utils.load_clip_g(
+        args.clip_g, sd3_dtype, loading_device, state_dict=state_dict
+    )
+    t5xxl = sd3_utils.load_t5xxl(
+        args.t5xxl, sd3_dtype, loading_device, state_dict=state_dict
+    )
 
     # MMDiT and VAE
     vae = sd3_utils.load_vae(None, sd3_dtype, loading_device, state_dict=state_dict)
@@ -309,7 +357,9 @@ if __name__ == "__main__":
 
         weights_sd = load_file(weights_file)
         module = lora_sd3
-        lora_model, _ = module.create_network_from_weights(multiplier, None, vae, [clip_l, clip_g, t5xxl], mmdit, weights_sd, True)
+        lora_model, _ = module.create_network_from_weights(
+            multiplier, None, vae, [clip_l, clip_g, t5xxl], mmdit, weights_sd, True
+        )
 
         if args.merge_lora_weights:
             lora_model.merge_to([clip_l, clip_g, t5xxl], mmdit, weights_sd)
@@ -375,7 +425,9 @@ if __name__ == "__main__":
                     elif opt.startswith("m"):
                         mutipliers = opt[1:].strip().split(",")
                         if len(mutipliers) != len(lora_models):
-                            logger.error(f"Invalid number of multipliers, expected {len(lora_models)}")
+                            logger.error(
+                                f"Invalid number of multipliers, expected {len(lora_models)}"
+                            )
                             continue
                         for i, lora_model in enumerate(lora_models):
                             lora_model.set_multiplier(float(mutipliers[i]))
@@ -400,7 +452,11 @@ if __name__ == "__main__":
                 width,
                 height,
                 device,
-                negative_prompt if negative_prompt is not None else args.negative_prompt,
+                (
+                    negative_prompt
+                    if negative_prompt is not None
+                    else args.negative_prompt
+                ),
                 cfg_scale,
             )
 

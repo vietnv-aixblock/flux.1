@@ -1,7 +1,8 @@
-import os
 import argparse
+import os
+
 import torch
-from accelerate import DeepSpeedPlugin, Accelerator
+from accelerate import Accelerator, DeepSpeedPlugin
 
 from .utils import setup_logging
 
@@ -13,8 +14,16 @@ logger = logging.getLogger(__name__)
 
 def add_deepspeed_arguments(parser: argparse.ArgumentParser):
     # DeepSpeed Arguments. https://huggingface.co/docs/accelerate/usage_guides/deepspeed
-    parser.add_argument("--deepspeed", action="store_true", help="enable deepspeed training")
-    parser.add_argument("--zero_stage", type=int, default=2, choices=[0, 1, 2, 3], help="Possible options are 0,1,2,3.")
+    parser.add_argument(
+        "--deepspeed", action="store_true", help="enable deepspeed training"
+    )
+    parser.add_argument(
+        "--zero_stage",
+        type=int,
+        default=2,
+        choices=[0, 1, 2, 3],
+        help="Possible options are 0,1,2,3.",
+    )
     parser.add_argument(
         "--offload_optimizer_device",
         type=str,
@@ -90,16 +99,24 @@ def prepare_deepspeed_plugin(args: argparse.Namespace):
         zero3_init_flag=args.zero3_init_flag,
         zero3_save_16bit_model=args.zero3_save_16bit_model,
     )
-    deepspeed_plugin.deepspeed_config["train_micro_batch_size_per_gpu"] = args.train_batch_size
+    deepspeed_plugin.deepspeed_config["train_micro_batch_size_per_gpu"] = (
+        args.train_batch_size
+    )
     deepspeed_plugin.deepspeed_config["train_batch_size"] = (
-        args.train_batch_size * args.gradient_accumulation_steps * int(os.environ["WORLD_SIZE"])
+        args.train_batch_size
+        * args.gradient_accumulation_steps
+        * int(os.environ["WORLD_SIZE"])
     )
     deepspeed_plugin.set_mixed_precision(args.mixed_precision)
     if args.mixed_precision.lower() == "fp16":
-        deepspeed_plugin.deepspeed_config["fp16"]["initial_scale_power"] = 0  # preventing overflow.
+        deepspeed_plugin.deepspeed_config["fp16"][
+            "initial_scale_power"
+        ] = 0  # preventing overflow.
     if args.full_fp16 or args.fp16_master_weights_and_gradients:
         if args.offload_optimizer_device == "cpu" and args.zero_stage == 2:
-            deepspeed_plugin.deepspeed_config["fp16"]["fp16_master_weights_and_grads"] = True
+            deepspeed_plugin.deepspeed_config["fp16"][
+                "fp16_master_weights_and_grads"
+            ] = True
             logger.info("[DeepSpeed] full fp16 enable.")
         else:
             logger.info(

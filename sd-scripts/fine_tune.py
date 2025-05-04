@@ -5,41 +5,36 @@ import argparse
 import math
 import os
 from multiprocessing import Value
+
 import toml
-
-from tqdm import tqdm
-
 import torch
 from library import deepspeed_utils, strategy_base
-from library.device_utils import init_ipex, clean_memory_on_device
+from library.device_utils import clean_memory_on_device, init_ipex
+from tqdm import tqdm
 
 init_ipex()
 
 from accelerate.utils import set_seed
 from diffusers import DDPMScheduler
-
-from library.utils import setup_logging, add_logging_arguments
+from library.utils import add_logging_arguments, setup_logging
 
 setup_logging()
 import logging
 
 logger = logging.getLogger(__name__)
 
-import library.train_util as train_util
 import library.config_util as config_util
-from library.config_util import (
-    ConfigSanitizer,
-    BlueprintGenerator,
-)
 import library.custom_train_functions as custom_train_functions
+import library.strategy_sd as strategy_sd
+import library.train_util as train_util
+from library.config_util import BlueprintGenerator, ConfigSanitizer
 from library.custom_train_functions import (
+    apply_debiased_estimation,
     apply_snr_weight,
     get_weighted_text_embeddings,
     prepare_scheduler_for_custom_training,
     scale_v_prediction_loss_like_noise_prediction,
-    apply_debiased_estimation,
 )
-import library.strategy_sd as strategy_sd
 
 
 def train(args):
@@ -53,19 +48,26 @@ def train(args):
     if args.seed is not None:
         set_seed(args.seed)  # 乱数系列を初期化する
 
-    tokenize_strategy = strategy_sd.SdTokenizeStrategy(args.v2, args.max_token_length, args.tokenizer_cache_dir)
+    tokenize_strategy = strategy_sd.SdTokenizeStrategy(
+        args.v2, args.max_token_length, args.tokenizer_cache_dir
+    )
     strategy_base.TokenizeStrategy.set_strategy(tokenize_strategy)
 
     # prepare caching strategy: this must be set before preparing dataset. because dataset may use this strategy for initialization.
     if cache_latents:
         latents_caching_strategy = strategy_sd.SdSdxlLatentsCachingStrategy(
-            False, args.cache_latents_to_disk, args.vae_batch_size, args.skip_cache_check
+            False,
+            args.cache_latents_to_disk,
+            args.vae_batch_size,
+            args.skip_cache_check,
         )
         strategy_base.LatentsCachingStrategy.set_strategy(latents_caching_strategy)
 
     # データセットを準備する
     if args.dataset_class is None:
-        blueprint_generator = BlueprintGenerator(ConfigSanitizer(False, True, False, True))
+        blueprint_generator = BlueprintGenerator(
+            ConfigSanitizer(False, True, False, True)
+        )
         if args.dataset_config is not None:
             logger.info(f"Load dataset config from {args.dataset_config}")
             user_config = config_util.load_user_config(args.dataset_config)
@@ -91,14 +93,18 @@ def train(args):
             }
 
         blueprint = blueprint_generator.generate(user_config, args)
-        train_dataset_group, val_dataset_group = config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        train_dataset_group, val_dataset_group = (
+            config_util.generate_dataset_group_by_blueprint(blueprint.dataset_group)
+        )
     else:
         train_dataset_group = train_util.load_arbitrary_dataset(args)
         val_dataset_group = None
 
     current_epoch = Value("i", 0)
     current_step = Value("i", 0)
-    ds_for_collator = train_dataset_group if args.max_data_loader_n_workers == 0 else None
+    ds_for_collator = (
+        train_dataset_group if args.max_data_loader_n_workers == 0 else None
+    )
     collator = train_util.collator_class(current_epoch, current_step, ds_for_collator)
 
     train_dataset_group.verify_bucket_reso_steps(64)
@@ -126,7 +132,9 @@ def train(args):
     vae_dtype = torch.float32 if args.no_half_vae else weight_dtype
 
     # モデルを読み込む
-    text_encoder, vae, unet, load_stable_diffusion_format = train_util.load_target_model(args, weight_dtype, accelerator)
+    text_encoder, vae, unet, load_stable_diffusion_format = (
+        train_util.load_target_model(args, weight_dtype, accelerator)
+    )
 
     # verify load/save model formats
     if load_stable_diffusion_format:
@@ -140,8 +148,13 @@ def train(args):
         save_stable_diffusion_format = load_stable_diffusion_format
         use_safetensors = args.use_safetensors
     else:
-        save_stable_diffusion_format = args.save_model_as.lower() == "ckpt" or args.save_model_as.lower() == "safetensors"
-        use_safetensors = args.use_safetensors or ("safetensors" in args.save_model_as.lower())
+        save_stable_diffusion_format = (
+            args.save_model_as.lower() == "ckpt"
+            or args.save_model_as.lower() == "safetensors"
+        )
+        use_safetensors = args.use_safetensors or (
+            "safetensors" in args.save_model_as.lower()
+        )
 
     # Diffusers版のxformers使用フラグを設定する関数
     def set_diffusers_xformers_flag(model, valid):
@@ -170,7 +183,9 @@ def train(args):
         # Windows版のxformersはfloatで学習できないのでxformersを使わない設定も可能にしておく必要がある
         accelerator.print("Disable Diffusers' xformers")
         set_diffusers_xformers_flag(unet, False)
-        train_util.replace_unet_modules(unet, args.mem_eff_attn, args.xformers, args.sdpa)
+        train_util.replace_unet_modules(
+            unet, args.mem_eff_attn, args.xformers, args.sdpa
+        )
 
     # 学習を準備する
     if cache_latents:
@@ -236,7 +251,9 @@ def train(args):
     train_dataset_group.set_current_strategies()
 
     # DataLoaderのプロセス数：0 は persistent_workers が使えないので注意
-    n_workers = min(args.max_data_loader_n_workers, os.cpu_count())  # cpu_count or max_data_loader_n_workers
+    n_workers = min(
+        args.max_data_loader_n_workers, os.cpu_count()
+    )  # cpu_count or max_data_loader_n_workers
     train_dataloader = torch.utils.data.DataLoader(
         train_dataset_group,
         batch_size=1,
@@ -249,7 +266,9 @@ def train(args):
     # 学習ステップ数を計算する
     if args.max_train_epochs is not None:
         args.max_train_steps = args.max_train_epochs * math.ceil(
-            len(train_dataloader) / accelerator.num_processes / args.gradient_accumulation_steps
+            len(train_dataloader)
+            / accelerator.num_processes
+            / args.gradient_accumulation_steps
         )
         accelerator.print(
             f"override steps. steps for {args.max_train_epochs} epochs is / 指定エポックまでのステップ数: {args.max_train_steps}"
@@ -259,7 +278,9 @@ def train(args):
     train_dataset_group.set_max_train_steps(args.max_train_steps)
 
     # lr schedulerを用意する
-    lr_scheduler = train_util.get_scheduler_fix(args, optimizer, accelerator.num_processes)
+    lr_scheduler = train_util.get_scheduler_fix(
+        args, optimizer, accelerator.num_processes
+    )
 
     # 実験的機能：勾配も含めたfp16学習を行う　モデル全体をfp16にする
     if args.full_fp16:
@@ -272,7 +293,9 @@ def train(args):
 
     if args.deepspeed:
         if args.train_text_encoder:
-            ds_model = deepspeed_utils.prepare_deepspeed_model(args, unet=unet, text_encoder=text_encoder)
+            ds_model = deepspeed_utils.prepare_deepspeed_model(
+                args, unet=unet, text_encoder=text_encoder
+            )
         else:
             ds_model = deepspeed_utils.prepare_deepspeed_model(args, unet=unet)
         ds_model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
@@ -282,11 +305,15 @@ def train(args):
     else:
         # acceleratorがなんかよろしくやってくれるらしい
         if args.train_text_encoder:
-            unet, text_encoder, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-                unet, text_encoder, optimizer, train_dataloader, lr_scheduler
+            unet, text_encoder, optimizer, train_dataloader, lr_scheduler = (
+                accelerator.prepare(
+                    unet, text_encoder, optimizer, train_dataloader, lr_scheduler
+                )
             )
         else:
-            unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(unet, optimizer, train_dataloader, lr_scheduler)
+            unet, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
+                unet, optimizer, train_dataloader, lr_scheduler
+            )
 
     # 実験的機能：勾配も含めたfp16学習を行う　PyTorchにパッチを当ててfp16でのgrad scaleを有効にする
     if args.full_fp16:
@@ -296,33 +323,62 @@ def train(args):
     train_util.resume_from_local_or_hf_if_specified(accelerator, args)
 
     # epoch数を計算する
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
     if (args.save_n_epoch_ratio is not None) and (args.save_n_epoch_ratio > 0):
-        args.save_every_n_epochs = math.floor(num_train_epochs / args.save_n_epoch_ratio) or 1
+        args.save_every_n_epochs = (
+            math.floor(num_train_epochs / args.save_n_epoch_ratio) or 1
+        )
 
     # 学習する
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = (
+        args.train_batch_size
+        * accelerator.num_processes
+        * args.gradient_accumulation_steps
+    )
     accelerator.print("running training / 学習開始")
-    accelerator.print(f"  num examples / サンプル数: {train_dataset_group.num_train_images}")
-    accelerator.print(f"  num batches per epoch / 1epochのバッチ数: {len(train_dataloader)}")
+    accelerator.print(
+        f"  num examples / サンプル数: {train_dataset_group.num_train_images}"
+    )
+    accelerator.print(
+        f"  num batches per epoch / 1epochのバッチ数: {len(train_dataloader)}"
+    )
     accelerator.print(f"  num epochs / epoch数: {num_train_epochs}")
-    accelerator.print(f"  batch size per device / バッチサイズ: {args.train_batch_size}")
+    accelerator.print(
+        f"  batch size per device / バッチサイズ: {args.train_batch_size}"
+    )
     accelerator.print(
         f"  total train batch size (with parallel & distributed & accumulation) / 総バッチサイズ（並列学習、勾配合計含む）: {total_batch_size}"
     )
-    accelerator.print(f"  gradient accumulation steps / 勾配を合計するステップ数 = {args.gradient_accumulation_steps}")
-    accelerator.print(f"  total optimization steps / 学習ステップ数: {args.max_train_steps}")
+    accelerator.print(
+        f"  gradient accumulation steps / 勾配を合計するステップ数 = {args.gradient_accumulation_steps}"
+    )
+    accelerator.print(
+        f"  total optimization steps / 学習ステップ数: {args.max_train_steps}"
+    )
 
-    progress_bar = tqdm(range(args.max_train_steps), smoothing=0, disable=not accelerator.is_local_main_process, desc="steps")
+    progress_bar = tqdm(
+        range(args.max_train_steps),
+        smoothing=0,
+        disable=not accelerator.is_local_main_process,
+        desc="steps",
+    )
     global_step = 0
 
     noise_scheduler = DDPMScheduler(
-        beta_start=0.00085, beta_end=0.012, beta_schedule="scaled_linear", num_train_timesteps=1000, clip_sample=False
+        beta_start=0.00085,
+        beta_end=0.012,
+        beta_schedule="scaled_linear",
+        num_train_timesteps=1000,
+        clip_sample=False,
     )
     prepare_scheduler_for_custom_training(noise_scheduler, accelerator.device)
     if args.zero_terminal_snr:
-        custom_train_functions.fix_noise_scheduler_betas_for_zero_terminal_snr(noise_scheduler)
+        custom_train_functions.fix_noise_scheduler_betas_for_zero_terminal_snr(
+            noise_scheduler
+        )
 
     if accelerator.is_main_process:
         init_kwargs = {}
@@ -338,7 +394,15 @@ def train(args):
 
     # For --sample_at_first
     train_util.sample_images(
-        accelerator, args, 0, global_step, accelerator.device, vae, tokenize_strategy.tokenizer, text_encoder, unet
+        accelerator,
+        args,
+        0,
+        global_step,
+        accelerator.device,
+        vae,
+        tokenize_strategy.tokenizer,
+        text_encoder,
+        unet,
     )
     if len(accelerator.trackers) > 0:
         # log empty object to commit the sample images to wandb
@@ -357,20 +421,35 @@ def train(args):
             with accelerator.accumulate(*training_models):
                 with torch.no_grad():
                     if "latents" in batch and batch["latents"] is not None:
-                        latents = batch["latents"].to(accelerator.device).to(dtype=weight_dtype)
+                        latents = (
+                            batch["latents"]
+                            .to(accelerator.device)
+                            .to(dtype=weight_dtype)
+                        )
                     else:
                         # latentに変換
-                        latents = vae.encode(batch["images"].to(dtype=vae_dtype)).latent_dist.sample().to(weight_dtype)
+                        latents = (
+                            vae.encode(batch["images"].to(dtype=vae_dtype))
+                            .latent_dist.sample()
+                            .to(weight_dtype)
+                        )
                     latents = latents * 0.18215
                 b_size = latents.shape[0]
 
                 with torch.set_grad_enabled(args.train_text_encoder):
                     # Get the text embedding for conditioning
                     if args.weighted_captions:
-                        input_ids_list, weights_list = tokenize_strategy.tokenize_with_weights(batch["captions"])
-                        encoder_hidden_states = text_encoding_strategy.encode_tokens_with_weights(
-                            tokenize_strategy, [text_encoder], input_ids_list, weights_list
-                        )[0]
+                        input_ids_list, weights_list = (
+                            tokenize_strategy.tokenize_with_weights(batch["captions"])
+                        )
+                        encoder_hidden_states = (
+                            text_encoding_strategy.encode_tokens_with_weights(
+                                tokenize_strategy,
+                                [text_encoder],
+                                input_ids_list,
+                                weights_list,
+                            )[0]
+                        )
                     else:
                         input_ids = batch["input_ids_list"][0].to(accelerator.device)
                         encoder_hidden_states = text_encoding_strategy.encode_tokens(
@@ -381,11 +460,17 @@ def train(args):
 
                 # Sample noise, sample a random timestep for each image, and add noise to the latents,
                 # with noise offset and/or multires noise if specified
-                noise, noisy_latents, timesteps = train_util.get_noise_noisy_latents_and_timesteps(args, noise_scheduler, latents)
+                noise, noisy_latents, timesteps = (
+                    train_util.get_noise_noisy_latents_and_timesteps(
+                        args, noise_scheduler, latents
+                    )
+                )
 
                 # Predict the noise residual
                 with accelerator.autocast():
-                    noise_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                    noise_pred = unet(
+                        noisy_latents, timesteps, encoder_hidden_states
+                    ).sample
 
                 if args.v_parameterization:
                     # v-parameterization training
@@ -393,22 +478,50 @@ def train(args):
                 else:
                     target = noise
 
-                huber_c = train_util.get_huber_threshold_if_needed(args, timesteps, noise_scheduler)
-                if args.min_snr_gamma or args.scale_v_pred_loss_like_noise_pred or args.debiased_estimation_loss:
+                huber_c = train_util.get_huber_threshold_if_needed(
+                    args, timesteps, noise_scheduler
+                )
+                if (
+                    args.min_snr_gamma
+                    or args.scale_v_pred_loss_like_noise_pred
+                    or args.debiased_estimation_loss
+                ):
                     # do not mean over batch dimension for snr weight or scale v-pred loss
-                    loss = train_util.conditional_loss(noise_pred.float(), target.float(), args.loss_type, "none", huber_c)
+                    loss = train_util.conditional_loss(
+                        noise_pred.float(),
+                        target.float(),
+                        args.loss_type,
+                        "none",
+                        huber_c,
+                    )
                     loss = loss.mean([1, 2, 3])
 
                     if args.min_snr_gamma:
-                        loss = apply_snr_weight(loss, timesteps, noise_scheduler, args.min_snr_gamma, args.v_parameterization)
+                        loss = apply_snr_weight(
+                            loss,
+                            timesteps,
+                            noise_scheduler,
+                            args.min_snr_gamma,
+                            args.v_parameterization,
+                        )
                     if args.scale_v_pred_loss_like_noise_pred:
-                        loss = scale_v_prediction_loss_like_noise_prediction(loss, timesteps, noise_scheduler)
+                        loss = scale_v_prediction_loss_like_noise_prediction(
+                            loss, timesteps, noise_scheduler
+                        )
                     if args.debiased_estimation_loss:
-                        loss = apply_debiased_estimation(loss, timesteps, noise_scheduler, args.v_parameterization)
+                        loss = apply_debiased_estimation(
+                            loss, timesteps, noise_scheduler, args.v_parameterization
+                        )
 
                     loss = loss.mean()  # mean over batch dimension
                 else:
-                    loss = train_util.conditional_loss(noise_pred.float(), target.float(), args.loss_type, "mean", huber_c)
+                    loss = train_util.conditional_loss(
+                        noise_pred.float(),
+                        target.float(),
+                        args.loss_type,
+                        "mean",
+                        huber_c,
+                    )
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients and args.max_grad_norm != 0.0:
@@ -427,14 +540,29 @@ def train(args):
                 global_step += 1
 
                 train_util.sample_images(
-                    accelerator, args, None, global_step, accelerator.device, vae, tokenize_strategy.tokenizer, text_encoder, unet
+                    accelerator,
+                    args,
+                    None,
+                    global_step,
+                    accelerator.device,
+                    vae,
+                    tokenize_strategy.tokenizer,
+                    text_encoder,
+                    unet,
                 )
 
                 # 指定ステップごとにモデルを保存
-                if args.save_every_n_steps is not None and global_step % args.save_every_n_steps == 0:
+                if (
+                    args.save_every_n_steps is not None
+                    and global_step % args.save_every_n_steps == 0
+                ):
                     accelerator.wait_for_everyone()
                     if accelerator.is_main_process:
-                        src_path = src_stable_diffusion_ckpt if save_stable_diffusion_format else src_diffusers_model_path
+                        src_path = (
+                            src_stable_diffusion_ckpt
+                            if save_stable_diffusion_format
+                            else src_diffusers_model_path
+                        )
                         train_util.save_sd_model_on_epoch_end_or_stepwise(
                             args,
                             False,
@@ -454,7 +582,9 @@ def train(args):
             current_loss = loss.detach().item()  # 平均なのでbatch sizeは関係ないはず
             if len(accelerator.trackers) > 0:
                 logs = {"loss": current_loss}
-                train_util.append_lr_to_logs(logs, lr_scheduler, args.optimizer_type, including_unet=True)
+                train_util.append_lr_to_logs(
+                    logs, lr_scheduler, args.optimizer_type, including_unet=True
+                )
                 accelerator.log(logs, step=global_step)
 
             loss_recorder.add(epoch=epoch, step=step, loss=current_loss)
@@ -473,7 +603,11 @@ def train(args):
 
         if args.save_every_n_epochs is not None:
             if accelerator.is_main_process:
-                src_path = src_stable_diffusion_ckpt if save_stable_diffusion_format else src_diffusers_model_path
+                src_path = (
+                    src_stable_diffusion_ckpt
+                    if save_stable_diffusion_format
+                    else src_diffusers_model_path
+                )
                 train_util.save_sd_model_on_epoch_end_or_stepwise(
                     args,
                     True,
@@ -491,7 +625,15 @@ def train(args):
                 )
 
         train_util.sample_images(
-            accelerator, args, epoch + 1, global_step, accelerator.device, vae, tokenize_strategy.tokenizer, text_encoder, unet
+            accelerator,
+            args,
+            epoch + 1,
+            global_step,
+            accelerator.device,
+            vae,
+            tokenize_strategy.tokenizer,
+            text_encoder,
+            unet,
         )
 
     is_main_process = accelerator.is_main_process
@@ -507,9 +649,22 @@ def train(args):
     del accelerator  # この後メモリを使うのでこれは消す
 
     if is_main_process:
-        src_path = src_stable_diffusion_ckpt if save_stable_diffusion_format else src_diffusers_model_path
+        src_path = (
+            src_stable_diffusion_ckpt
+            if save_stable_diffusion_format
+            else src_diffusers_model_path
+        )
         train_util.save_sd_model_on_train_end(
-            args, src_path, save_stable_diffusion_format, use_safetensors, save_dtype, epoch, global_step, text_encoder, unet, vae
+            args,
+            src_path,
+            save_stable_diffusion_format,
+            use_safetensors,
+            save_dtype,
+            epoch,
+            global_step,
+            text_encoder,
+            unet,
+            vae,
         )
         logger.info("model saved.")
 
@@ -528,9 +683,15 @@ def setup_parser() -> argparse.ArgumentParser:
     custom_train_functions.add_custom_train_arguments(parser)
 
     parser.add_argument(
-        "--diffusers_xformers", action="store_true", help="use xformers by diffusers / Diffusersでxformersを使用する"
+        "--diffusers_xformers",
+        action="store_true",
+        help="use xformers by diffusers / Diffusersでxformersを使用する",
     )
-    parser.add_argument("--train_text_encoder", action="store_true", help="train text encoder / text encoderも学習する")
+    parser.add_argument(
+        "--train_text_encoder",
+        action="store_true",
+        help="train text encoder / text encoderも学習する",
+    )
     parser.add_argument(
         "--learning_rate_te",
         type=float,
