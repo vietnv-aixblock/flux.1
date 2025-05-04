@@ -10,11 +10,8 @@ from library.device_utils import init_ipex
 init_ipex()
 
 import diffusers
-from diffusers import (
-    AutoencoderKL,
-    DDIMScheduler,  # , UNet2DConditionModel
-    StableDiffusionPipeline,
-)
+from diffusers import DDIMScheduler  # , UNet2DConditionModel
+from diffusers import AutoencoderKL, StableDiffusionPipeline
 from library.original_unet import UNet2DConditionModel
 from library.utils import setup_logging
 from safetensors.torch import load_file, save_file

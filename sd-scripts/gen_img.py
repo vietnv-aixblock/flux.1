@@ -31,9 +31,9 @@ import PIL
 import tools.original_control_net as original_control_net
 import torchvision
 from accelerate import init_empty_weights
+from diffusers import DDIMScheduler  # UNet2DConditionModel,
 from diffusers import (
     AutoencoderKL,
-    DDIMScheduler,  # UNet2DConditionModel,
     DDPMScheduler,
     DPMSolverMultistepScheduler,
     DPMSolverSinglestepScheduler,

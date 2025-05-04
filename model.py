@@ -46,6 +46,7 @@ from io import BytesIO
 from types import SimpleNamespace
 from typing import Dict, List, Optional, get_type_hints
 
+import gradio as gr
 import torch
 import wandb
 import yaml
@@ -367,7 +368,8 @@ class MyModel(AIxBlockMLBase):
 
         print("fit() completed successfully.")
 
-    def action(self, project, command, collection, **kwargs):
+    @mcp.tool()
+    def action(self, command, **kwargs):
         """
         {
             "command": "train",
@@ -386,18 +388,10 @@ class MyModel(AIxBlockMLBase):
             "project": "1"
         }
         """
-        print(
-            f"""
-              project: {project},
-                command: {command},
-                collection: {collection},
-              """
-        )
-
+        # region Train
         if command.lower() == "train":
             try:
                 clone_dir = const.CLONE_DIR
-
                 framework = kwargs.get("framework", const.FRAMEWORK)
                 task = kwargs.get("task", const.TASK)
                 world_size = kwargs.get("world_size", const.WORLD_SIZE)
@@ -615,7 +609,7 @@ class MyModel(AIxBlockMLBase):
             tensorboard_thread = threading.Thread(target=run_tensorboard)
             tensorboard_thread.start()
             return {"message": "tensorboardx started successfully"}
-
+        # region Predict
         elif command.lower() == "predict":
             try:
                 prompt = kwargs.get("prompt", None)
@@ -710,43 +704,48 @@ class MyModel(AIxBlockMLBase):
 
             # return {"message": "train completed successfully"}
 
-    def model(self, project, **kwargs):
-        # store all import here
-        import gc
-
-        import gradio as gr
-
-        # from optimum.quanto import freeze, qfloat8, quantize
+    def model(self, **kwargs):
+        global pipe_demo, model_nf4
         # initialize
         task = kwargs.get("task", "text-to-image")
         model_id = kwargs.get("model_id", "black-forest-labs/FLUX.1-dev")
-        chkpt_name = kwargs.get("checkpoint", None)
-        hf_model_id = kwargs.get("hf_model_id", "black-forest-labs/FLUX.1-dev")
-        project_id = project
-
-        # download the model
-        try:
-            pipe = AutoPipelineForText2Image.from_pretrained(
-                model_id, torch_dtype=self.torch_dtype
-            )
-        except Exception as e:
-            base_model = hf_model_id
-            pipe = AutoPipelineForText2Image.from_pretrained(
-                base_model, torch_dtype=self.torch_dtype
-            )
-            pipe.load_lora_weights(model_id, weight_name=chkpt_name)
-
-        print(
-            f"""\
-        Project ID: {project_id}
-        Label config: {self.label_config}
-        Parsed JSON Label config: {self.parsed_label_config}"""
-        )
+        if torch.cuda.is_available():
+            device = "cuda"
+        else:
+            device = "cpu"
+        # Initialize pipe as None - will be loaded when button is clicked
+        pipe_demo = None
+        model_nf4 = None
         hf_access_token = kwargs.get("hf_access_token", const.HF_ACCESS_TOKEN)
         login(token=hf_access_token)
 
-        gc.collect()
-        torch.cuda.empty_cache()
+        def load_model_fn():
+            global pipe_demo, model_nf4
+            if model_nf4 is not None:
+                # If the model has already been loaded, do not load it again
+                return "Model already loaded!", gr.update(interactive=True)
+            try:
+                nf4_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                )
+                model_nf4 = SD3Transformer2DModel.from_pretrained(
+                    model_id,
+                    subfolder="transformer",
+                    quantization_config=nf4_config,
+                    torch_dtype=torch.bfloat16,
+                    device_map=device,
+                )
+                pipe_demo = StableDiffusion3Pipeline.from_pretrained(
+                    model_id,
+                    transformer=model_nf4,
+                    torch_dtype=torch.bfloat16,
+                    device_map="balanced",
+                )
+                return "Model loaded successfully!", gr.update(interactive=True)
+            except Exception as e:
+                return f"Error loading model: {str(e)}", gr.update(interactive=False)
 
         @dataclass
         class Config:
@@ -793,52 +792,39 @@ class MyModel(AIxBlockMLBase):
         ) -> tuple:
             if prompt == "" or prompt is None:
                 raise Exception("Prompt cannot be empty")
+            if pipe_demo is None:
+                raise Exception(
+                    "Please load the model first by clicking 'Load Model' button"
+                )
 
-            # model = model_list[model]
-
-            # # for low GPU RAM, quantize from 16b to 8b
-            # quantize(pipe.transformer, weights=qfloat8)
-            # freeze(pipe.transformer)
-            # quantize(pipe.text_encoder_2, weights=qfloat8)
-            # freeze(pipe.text_encoder_2)
-
-            # # for even lower GPU RAM
-            # pipe.vae.enable_tiling()
-            # pipe.vae.enable_slicing()
-
-            pipe.enable_sequential_cpu_offload()
-
-            if torch.cuda.is_available():
-                device = "cuda"
-            else:
-                device = "cpu"
-            image = pipe(
+            image = pipe_demo(
                 prompt=prompt,
                 width=width,
                 height=height,
                 num_inference_steps=step,
                 guidance_scale=guidance_scale,
-                generator=torch.Generator(device=device),
             ).images[0]
 
             return image, ""
 
         with gr.Blocks(
             theme=gr.themes.Soft(text_size="sm"),
-            title="Flux Image Generator",
+            title="Stable Diffusion 3.5 Image Generator",
             css=css,
         ) as demo_txt_to_img:
-
             stats = gr.State(STATS_DEFAULT)
-            config = asdict(stats.value.config)
-
-            # with gr.Row():
-            #     # model = gr.Dropdown(list(model_list.keys()), label="Select VLLM Model", type="value")
-            #     model = gr.Textbox(value=model_id, label="VLLM Model: ", type="text",
-            #                        interactive=False)
 
             with gr.Row():
-                image_field = gr.Image(label="Output Image", elem_id="output_image")
+                with gr.Column(scale=3):
+                    image_field = gr.Image(label="Output Image", elem_id="output_image")
+                with gr.Column(scale=1):
+                    load_model_btn = gr.Button("Load Model", variant="primary")
+                    status_box = gr.Textbox(
+                        label="Model Status",
+                        interactive=False,
+                        value="Model not loaded",
+                        lines=2,
+                    )
             with gr.Row():
                 with gr.Column(scale=3):
                     prompt = gr.TextArea(
@@ -848,7 +834,7 @@ class MyModel(AIxBlockMLBase):
                         lines=10,
                         max_lines=8,
                     )
-                    generate_btn = gr.Button("Generate")
+                    generate_btn = gr.Button("Generate", interactive=False)
                 with gr.Column(scale=1):
                     guidance_scale = gr.Slider(
                         value=STATS_DEFAULT.config.guidance_scale,
@@ -888,6 +874,14 @@ class MyModel(AIxBlockMLBase):
                     examples_per_page=60,
                 )
 
+            def load_model_handler():
+                yield "Loading model, please wait...", gr.update(interactive=False)
+                status, btn_update = load_model_fn()
+                if "successfully" in status:
+                    yield status, gr.update(interactive=True)
+                else:
+                    yield status, gr.update(interactive=False)
+
             # Event handlers
             generate_btn.click(
                 fn=generate_btn_handler,
@@ -896,14 +890,20 @@ class MyModel(AIxBlockMLBase):
                 api_name="generate",
             )
 
-        with gr.Blocks(css="style.css") as demo:
-            gr.Markdown("Flux VLLM")
+            load_model_btn.click(
+                fn=load_model_handler,
+                inputs=[],
+                outputs=[status_box, generate_btn],
+                api_name=None,
+                queue=True,  # Bắt buộc để enable yield (stream trạng thái)
+            )
+
+        with gr.Blocks(css=css) as demo:
+            gr.Markdown("Stable-diffusion-3.5")
             with gr.Tabs():
-                if task == "text-to-image":
-                    with gr.Tab(label=task):
-                        demo_txt_to_img.render()
-                else:
-                    return {"share_url": "", "local_url": ""}
+                # if task == "text-to-image":
+                with gr.Tab(label=task):
+                    demo_txt_to_img.render()
 
         gradio_app, local_url, share_url = demo.launch(
             share=True,

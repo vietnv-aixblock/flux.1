@@ -27,9 +27,9 @@ import library.sdxl_train_util as sdxl_train_util
 import library.train_util as train_util
 import PIL
 import torchvision
+from diffusers import DDIMScheduler  # UNet2DConditionModel,
 from diffusers import (
     AutoencoderKL,
-    DDIMScheduler,  # UNet2DConditionModel,
     DDPMScheduler,
     DPMSolverMultistepScheduler,
     DPMSolverSinglestepScheduler,

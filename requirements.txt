@@ -42,7 +42,7 @@ about-time
 rich
 sparkdl
 validators
-triton==3.1.0
+triton
 
 opencv-python==4.8.1.78
 einops==0.7.0
