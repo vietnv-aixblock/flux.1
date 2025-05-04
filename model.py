@@ -739,7 +739,7 @@ class MyModel(AIxBlockMLBase):
                     subfolder="transformer",
                     quantization_config=nf4_config,
                     torch_dtype=torch.bfloat16,
-                    device_map=device,
+                    # device_map=device,
                 )
                 pipe_demo = FluxPipeline.from_pretrained(
                     model_id,
