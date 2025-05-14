@@ -646,7 +646,7 @@ class MyModel(AIxBlockMLBase):
                             torch_dtype=torch.bfloat16,
                             device_map="balanced",
                         )
-                        image = pipe_demo(
+                        image = pipe(
                             prompt=prompt,
                             width=width,
                             height=height,
@@ -656,15 +656,16 @@ class MyModel(AIxBlockMLBase):
                     except Exception as e:
                         logger.error(str(e))
 
-                del pipe, model_nf4
-                gc.collect()
-                torch.cuda.empty_cache()
-
                 buffered = BytesIO()
                 image.save(buffered, format=format)
                 image.save(const.PROJ_DIR.joinpath(f"image.{format}"))
                 img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 generated_url = f"/downloads?path=image.{format}"
+
+                del pipe, model_nf4
+                gc.collect()
+                torch.cuda.empty_cache()
+
                 result = {
                     "model_version": model_id,
                     "result": {
