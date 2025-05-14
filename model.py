@@ -73,7 +73,8 @@ from function_ml import (
 from logging_class import start_queue, write_log
 from misc import get_device_count
 from param_class import TrainingConfigFlux, TrainingConfigFluxLora
-
+from loguru import logger
+import gc
 # --------------------------------------------------------------------------------------------
 with open("models.yaml", "r") as file:
     models = yaml.safe_load(file)
@@ -624,44 +625,38 @@ class MyModel(AIxBlockMLBase):
                 if prompt == "" or prompt is None:
                     return None, ""
 
-                if torch.cuda.is_available():
-                    device = "cuda"
-                else:
-                    device = "cpu"
+                with torch.no_grad():
+                    try:
+                        nf4_config = BitsAndBytesConfig(
+                            load_in_4bit=True,
+                            bnb_4bit_quant_type="nf4",
+                            bnb_4bit_compute_dtype=torch.bfloat16,
+                        )
+                        model_nf4 = FluxTransformer2DModel.from_pretrained(
+                            model_id,
+                            subfolder="transformer",
+                            quantization_config=nf4_config,
+                            torch_dtype=torch.bfloat16,
+                            # device_map=device,
+                        )
+                        pipe = FluxPipeline.from_pretrained(
+                            model_id,
+                            transformer=model_nf4,
+                            torch_dtype=torch.bfloat16,
+                            device_map="balanced",
+                        )
+                        image = pipe_demo(
+                            prompt=prompt,
+                            width=width,
+                            height=height,
+                            num_inference_steps=40,
+                            guidance_scale=guidance_scale,
+                        ).images[0]
+                    except Exception as e:
+                        logger.error(str(e))
 
-                try:
-                    pipe = AutoPipelineForText2Image.from_pretrained(
-                        model_id, torch_dtype=self.torch_dtype
-                    )
-                except Exception as e:
-                    model_id = "black-forest-labs/FLUX.1-dev"
-                    pipe = AutoPipelineForText2Image.from_pretrained(
-                        model_id, torch_dtype=self.torch_dtype
-                    )
-                    pipe.load_lora_weights(model_id, weight_name=chkpt_name)
-
-                # # for low GPU RAM, quantize from 16b to 8b
-                # quantize(pipe.transformer, weights=qfloat8)
-                # freeze(pipe.transformer)
-                # quantize(pipe.text_encoder_2, weights=qfloat8)
-                # freeze(pipe.text_encoder_2)
-
-                # # for even lower GPU RAM
-                # pipe.vae.enable_tiling()
-                # pipe.vae.enable_slicing()
-
-                pipe.enable_sequential_cpu_offload()
-
-                image = pipe(
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    generator=torch.Generator(device=device),
-                ).images[0]
-
-                pipe = None
+                del pipe, model_nf4
+                gc.collect()
                 torch.cuda.empty_cache()
 
                 buffered = BytesIO()
@@ -709,10 +704,6 @@ class MyModel(AIxBlockMLBase):
         # initialize
         task = kwargs.get("task", "text-to-image")
         model_id = kwargs.get("model_id", "black-forest-labs/FLUX.1-dev")
-        if torch.cuda.is_available():
-            device = "cuda"
-        else:
-            device = "cpu"
         # Initialize pipe as None - will be loaded when button is clicked
         pipe_demo = None
         model_nf4 = None
