@@ -75,6 +75,7 @@ from misc import get_device_count
 from param_class import TrainingConfigFlux, TrainingConfigFluxLora
 from loguru import logger
 import gc
+
 # --------------------------------------------------------------------------------------------
 with open("models.yaml", "r") as file:
     models = yaml.safe_load(file)
@@ -649,7 +650,7 @@ class MyModel(AIxBlockMLBase):
                             prompt=prompt,
                             width=width,
                             height=height,
-                            num_inference_steps=40,
+                            num_inference_steps=num_inference_steps,
                             guidance_scale=guidance_scale,
                         ).images[0]
                     except Exception as e:
