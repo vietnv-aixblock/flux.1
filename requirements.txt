@@ -50,3 +50,4 @@ torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
 fire>=0.6.0
 invisible-watermark
 protobuf
+huggingface_hub[hf_xet]
