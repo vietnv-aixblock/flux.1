@@ -130,7 +130,13 @@ def image_to_image_gr(
             control_image = load_image(init_image)
         else:
             control_image = init_image
-        control_image = preproc_state(control_image)[0].convert("RGB")
+        # Đảm bảo control_image là RGB trước khi đưa vào preprocessor
+        if hasattr(control_image, "mode") and control_image.mode != "RGB":
+            control_image = control_image.convert("RGB")
+        control_image = preproc_state(control_image)[0]
+        # Đảm bảo ảnh sau preprocessor cũng là RGB
+        if hasattr(control_image, "mode") and control_image.mode != "RGB":
+            control_image = control_image.convert("RGB")
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
         image = model_state(
             prompt=prompt,
@@ -173,6 +179,7 @@ with gr.Blocks() as demo:
     load_btn = gr.Button("Load Model")
     unload_btn = gr.Button("Unload Model")
     model_loaded_msg = gr.Markdown("", visible=False)
+    loading_msg = gr.Markdown("", visible=False)
 
     with gr.Column(visible=True) as txt2img_col:
         prompt = gr.Textbox(
@@ -236,6 +243,25 @@ with gr.Blocks() as demo:
 
     mode.change(switch_mode, inputs=mode, outputs=[txt2img_col, img2img_col, use_depth])
 
+    def set_loading_msg():
+        return gr.update(
+            value="<span style='color:blue'>Đang tải model...</span>", visible=True
+        )
+
+    def set_loaded_msg():
+        return gr.update(
+            value="<span style='color:green'>Model đã sẵn sàng!</span>", visible=True
+        )
+
+    def clear_loading_msg():
+        return gr.update(value="", visible=False)
+
+    load_btn.click(
+        set_loading_msg,
+        inputs=None,
+        outputs=loading_msg,
+        queue=False,
+    )
     load_btn.click(
         load_model,
         inputs=[mode, use_depth, model_state, preproc_state],
@@ -249,9 +275,16 @@ with gr.Blocks() as demo:
         ],
         show_progress=True,
     )
+    load_btn.click(
+        set_loaded_msg,
+        inputs=None,
+        outputs=loading_msg,
+        queue=False,
+    )
     unload_btn.click(
         unload_model, inputs=model_state, outputs=[model_state, preproc_state]
     )
+    unload_btn.click(clear_loading_msg, inputs=None, outputs=loading_msg, queue=False)
 
     gen_btn.click(
         text_to_image_gr,
