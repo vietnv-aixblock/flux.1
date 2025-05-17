@@ -5,6 +5,7 @@ from PIL import Image
 import gc
 from diffusers.utils import load_image
 import numpy as np
+from huggingface_hub import hf_hub_download
 
 # Try to import DepthPreprocessor if available
 try:
@@ -40,10 +41,16 @@ def load_model(
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
         )
-        # If load_lora is checked, only load one LoRA weight
+        # If load_lora is checked, load depth lora and hyper-sd lora
         if load_lora:
-            pipe.load_lora_weights(lora_model_name)
-        # If load_ip_adapter is checked, load ip adapter
+            pipe.load_lora_weights(lora_model_name, adapter_name="depth")
+            pipe.load_lora_weights(
+                hf_hub_download(
+                    "ByteDance/Hyper-SD", "Hyper-FLUX.1-dev-8steps-lora.safetensors"
+                ),
+                adapter_name="hyper-sd",
+            )
+            pipe.set_adapters(["depth", "hyper-sd"], adapter_weights=[0.85, 0.125])
         if load_ip_adapter:
             pipe.load_ip_adapter(
                 ip_adapter_model_name,
@@ -74,10 +81,16 @@ def load_model(
             )
         else:
             processor = None
-        # If load_lora is checked, only load one LoRA weight
+        # Nếu load_lora được tích thì load depth lora và hyper-sd lora
         if load_lora:
-            pipe.load_lora_weights(lora_model_name)
-        # If load_ip_adapter is checked, load ip adapter
+            pipe.load_lora_weights(lora_model_name, adapter_name="depth")
+            pipe.load_lora_weights(
+                hf_hub_download(
+                    "ByteDance/Hyper-SD", "Hyper-FLUX.1-dev-8steps-lora.safetensors"
+                ),
+                adapter_name="hyper-sd",
+            )
+            pipe.set_adapters(["depth", "hyper-sd"], adapter_weights=[0.85, 0.125])
         if load_ip_adapter:
             pipe.load_ip_adapter(
                 ip_adapter_model_name,
@@ -233,7 +246,7 @@ with gr.Blocks(css=demo_css) as demo:
                 info="HuggingFace model repo or path for IP-Adapter weights.",
             )
         with gr.Column(scale=1):
-            load_btn = gr.Button("Load Model", size="lg")
+            load_btn = gr.Button("Load Model", size="lg", variant="primary")
         with gr.Column(scale=2):
             model_loaded_msg = gr.Markdown("", visible=False)
     loading_msg = gr.Markdown("", visible=False)
@@ -354,12 +367,10 @@ with gr.Blocks(css=demo_css) as demo:
             return (
                 gr.update(visible=True),
                 gr.update(visible=False),
-                gr.update(visible=False),
             )
         else:
             return (
                 gr.update(visible=False),
-                gr.update(visible=True),
                 gr.update(visible=True),
             )
 
@@ -394,10 +405,12 @@ with gr.Blocks(css=demo_css) as demo:
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
     def set_btn_loading():
-        return gr.Button(interactive=False, elem_classes=["blinking"])
+        return gr.Button(
+            interactive=False, elem_classes=["blinking"], variant="primary"
+        )
 
     def unset_btn_loading():
-        return gr.Button(interactive=True, elem_classes=[])
+        return gr.Button(interactive=True, elem_classes=[], variant="primary")
 
     load_btn.click(
         set_loading_msg,
