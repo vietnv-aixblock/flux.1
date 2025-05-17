@@ -20,6 +20,7 @@ from flux.util import (
     load_flow_model,
     load_t5,
 )
+from loguru import logger
 
 NSFW_THRESHOLD = 0.85
 
@@ -292,4 +293,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     demo = create_demo(args.name, args.device, args.offload)
-    demo.launch(share=args.share)
+    gradio_app, local_url, share_url = demo.launch(
+        share=True,
+        quiet=True,
+        prevent_thread_lock=True,
+        server_name="0.0.0.0",
+        show_error=True,
+    )
+    logger.info(share_url)
