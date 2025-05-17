@@ -4,6 +4,7 @@ import gradio as gr
 from PIL import Image
 import gc
 from diffusers.utils import load_image
+import numpy as np
 
 # Thử import DepthPreprocessor nếu có
 try:
@@ -25,7 +26,7 @@ def unload_model(model_state):
 
 
 # Hàm load model
-def load_model(mode, use_depth, model_state, preproc_state):
+def load_model(mode, model_state, preproc_state):
     model_state, preproc_state = unload_model(model_state)
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
@@ -41,40 +42,25 @@ def load_model(mode, use_depth, model_state, preproc_state):
             gr.update(visible=False),
         )
     elif mode == "Image to Image (Depth Control)":
-        if use_depth:
-            pipe = FluxControlPipeline.from_pretrained(
-                "black-forest-labs/FLUX.1-Depth-dev", torch_dtype=torch.bfloat16
-            )
-            if torch.cuda.is_available():
-                pipe = pipe.to("cuda")
-            if HAS_DEPTH:
-                processor = DepthPreprocessor.from_pretrained(
-                    "LiheYoung/depth-anything-large-hf"
-                )
-            else:
-                processor = None
-            return (
-                pipe,
-                processor,
-                gr.update(visible=False),
-                gr.update(visible=True),
-                gr.update(visible=False),
-                gr.update(visible=True),
+        pipe = FluxControlPipeline.from_pretrained(
+            "black-forest-labs/FLUX.1-Depth-dev", torch_dtype=torch.bfloat16
+        )
+        if torch.cuda.is_available():
+            pipe = pipe.to("cuda")
+        if HAS_DEPTH:
+            processor = DepthPreprocessor.from_pretrained(
+                "LiheYoung/depth-anything-large-hf"
             )
         else:
-            # Nếu pipeline hỗ trợ image-to-image không control, load pipeline thường
-            pipe = FluxPipeline.from_pretrained(
-                "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
-            )
-            pipe.enable_model_cpu_offload()
-            return (
-                pipe,
-                None,
-                gr.update(visible=False),
-                gr.update(visible=True),
-                gr.update(visible=False),
-                gr.update(visible=False),
-            )
+            processor = None
+        return (
+            pipe,
+            processor,
+            gr.update(visible=False),
+            gr.update(visible=True),
+            gr.update(visible=False),
+            gr.update(visible=True),
+        )
     else:
         return (
             None,
@@ -119,13 +105,12 @@ def image_to_image_gr(
     num_inference_steps,
     max_sequence_length,
     strength,
-    use_depth,
     seed,
 ):
     if model_state is None:
         return None
-    if use_depth and preproc_state is not None:
-        # Xử lý depth
+    if preproc_state is not None:
+        # Xử lý depth luôn luôn
         if isinstance(init_image, str):
             control_image = load_image(init_image)
         else:
@@ -134,7 +119,22 @@ def image_to_image_gr(
         if hasattr(control_image, "mode") and control_image.mode != "RGB":
             control_image = control_image.convert("RGB")
         control_image = preproc_state(control_image)[0]
-        # Đảm bảo ảnh sau preprocessor cũng là RGB
+
+        # Đảm bảo control_image luôn là RGB 3 channel
+        if isinstance(control_image, np.ndarray):
+            if control_image.ndim == 2:  # grayscale
+                control_image = np.stack([control_image] * 3, axis=-1)
+            elif control_image.shape[-1] == 1:
+                control_image = np.repeat(control_image, 3, axis=-1)
+            control_image = Image.fromarray(control_image.astype(np.uint8))
+        elif "torch" in str(type(control_image)):
+            arr = control_image.cpu().numpy()
+            if arr.ndim == 2:
+                arr = np.stack([arr] * 3, axis=-1)
+            elif arr.shape[0] == 1:
+                arr = np.repeat(arr, 3, axis=0)
+            arr = np.moveaxis(arr, 0, -1)  # CHW -> HWC
+            control_image = Image.fromarray(arr.astype(np.uint8))
         if hasattr(control_image, "mode") and control_image.mode != "RGB":
             control_image = control_image.convert("RGB")
         generator = torch.Generator().manual_seed(seed) if seed is not None else None
@@ -149,21 +149,7 @@ def image_to_image_gr(
         ).images[0]
         return image
     else:
-        # Image-to-image thường (nếu pipeline hỗ trợ)
-        if hasattr(model_state, "img2img"):
-            out = model_state.img2img(
-                image=init_image,
-                prompt=prompt,
-                guidance_scale=guidance_scale,
-                height=height,
-                width=width,
-                num_inference_steps=num_inference_steps,
-                max_sequence_length=max_sequence_length,
-                strength=strength,
-            ).images[0]
-            return out
-        else:
-            return Image.new("RGB", (width, height), color="gray")
+        return Image.new("RGB", (width, height), color="gray")
 
 
 with gr.Blocks() as demo:
@@ -173,7 +159,6 @@ with gr.Blocks() as demo:
         value="Text to Image",
         label="Mode",
     )
-    use_depth = gr.Checkbox(label="Sử dụng Depth Control", value=True, visible=False)
     model_state = gr.State(None)
     preproc_state = gr.State(None)
     load_btn = gr.Button("Load Model")
@@ -241,7 +226,7 @@ with gr.Blocks() as demo:
                 gr.update(visible=True),
             )
 
-    mode.change(switch_mode, inputs=mode, outputs=[txt2img_col, img2img_col, use_depth])
+    mode.change(switch_mode, inputs=mode, outputs=[txt2img_col, img2img_col])
 
     def set_loading_msg():
         return gr.update(
@@ -264,13 +249,12 @@ with gr.Blocks() as demo:
     )
     load_btn.click(
         load_model,
-        inputs=[mode, use_depth, model_state, preproc_state],
+        inputs=[mode, model_state, preproc_state],
         outputs=[
             model_state,
             preproc_state,
             txt2img_col,
             img2img_col,
-            use_depth,
             model_loaded_msg,
         ],
         show_progress=True,
@@ -312,7 +296,6 @@ with gr.Blocks() as demo:
             num_inference_steps2,
             max_sequence_length2,
             strength2,
-            use_depth,
             seed2,
         ],
         outputs=img_out2,
