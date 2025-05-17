@@ -21,8 +21,42 @@ from flux.util import (
     load_t5,
 )
 from loguru import logger
-
+from gradio_combine_image import create_demo as create_combine_demo
+import gc
 NSFW_THRESHOLD = 0.85
+
+# Global variables to manage model and mode
+current_model = None
+current_mode = None
+
+
+def unload_model():
+    global current_model
+    if current_model is not None:
+        try:
+            del current_model
+            gc.collect()
+            torch.cuda.empty_cache()
+        except Exception as e:
+            print(f"Error unloading model: {e}")
+        current_model = None
+
+
+def load_model_for_mode(mode, model_name, device, offload):
+    global current_model, current_mode
+    if current_model is not None and current_mode != mode:
+        unload_model()
+    if current_model is None or current_mode != mode:
+        if mode == "Combine Image":
+            from uno.flux.pipeline import UNOPipeline
+
+            current_model = UNOPipeline(
+                model_name, device, offload, only_lora=True, lora_rank=512
+            )
+        else:
+            current_model = FluxGenerator(model_name, device, offload)
+        current_mode = mode
+    return current_model
 
 
 def get_models(name: str, device: torch.device, offload: bool, is_schnell: bool):
@@ -188,20 +222,22 @@ def create_demo(
     device: str = "cuda" if torch.cuda.is_available() else "cpu",
     offload: bool = False,
 ):
-    generator = FluxGenerator(model_name, device, offload)
     is_schnell = model_name == "flux-schnell"
 
     with gr.Blocks() as demo:
         gr.Markdown(f"# Flux Image Generation Demo - Model: {model_name}")
 
         with gr.Row():
-            with gr.Column():
+            with gr.Column() as main_column:
                 prompt = gr.Textbox(
                     label="Prompt",
                     value='a photo of a forest with mist swirling around the tree trunks. The word "FLUX" is painted over it in big, red brush strokes with visible texture',
                 )
-                do_img2img = gr.Checkbox(
-                    label="Image to Image", value=False, interactive=not is_schnell
+                mode = gr.Dropdown(
+                    choices=["Text to Image", "Image to Image", "Combine Image"],
+                    value="Text to Image",
+                    label="Mode",
+                    interactive=not is_schnell,
                 )
                 init_image = gr.Image(label="Input Image", visible=False)
                 image2image_strength = gr.Slider(
@@ -229,24 +265,78 @@ def create_demo(
 
                 generate_btn = gr.Button("Generate")
 
-            with gr.Column():
                 output_image = gr.Image(label="Generated Image")
                 seed_output = gr.Number(label="Used Seed")
                 warning_text = gr.Textbox(label="Warning", visible=False)
                 download_btn = gr.File(label="Download full-resolution")
 
-        def update_img2img(do_img2img):
+            with gr.Column(visible=False) as combine_column:
+                combine_demo = create_combine_demo(model_name, device, offload)
+
+        def update_mode(mode_value):
+            is_img2img = mode_value == "Image to Image"
+            is_combine = mode_value == "Combine Image"
+            # Unload model if mode changes
+            global current_mode
+            if current_mode != mode_value:
+                unload_model()
+                current_mode = mode_value
             return {
-                init_image: gr.update(visible=do_img2img),
-                image2image_strength: gr.update(visible=do_img2img),
+                main_column: gr.update(visible=not is_combine),
+                combine_column: gr.update(visible=is_combine),
+                init_image: gr.update(visible=is_img2img and not is_combine),
+                image2image_strength: gr.update(visible=is_img2img and not is_combine),
             }
 
-        do_img2img.change(
-            update_img2img, do_img2img, [init_image, image2image_strength]
+        mode.change(
+            update_mode,
+            mode,
+            [main_column, combine_column, init_image, image2image_strength],
         )
 
+        def generate_wrapper(
+            width,
+            height,
+            num_steps,
+            guidance,
+            seed,
+            prompt,
+            mode_value,
+            init_image_value,
+            image2image_strength_value,
+            add_sampling_metadata_value,
+        ):
+            model = load_model_for_mode(mode_value, model_name, device, offload)
+            if mode_value == "Text to Image":
+                return model.generate_image(
+                    width,
+                    height,
+                    num_steps,
+                    guidance,
+                    seed,
+                    prompt,
+                    None,
+                    0.0,
+                    add_sampling_metadata_value,
+                )
+            elif mode_value == "Image to Image":
+                return model.generate_image(
+                    width,
+                    height,
+                    num_steps,
+                    guidance,
+                    seed,
+                    prompt,
+                    init_image_value,
+                    image2image_strength_value,
+                    add_sampling_metadata_value,
+                )
+            else:
+                # Combine Image mode handled by combine_demo
+                return None, None, None, None
+
         generate_btn.click(
-            fn=generator.generate_image,
+            fn=generate_wrapper,
             inputs=[
                 width,
                 height,
@@ -254,6 +344,7 @@ def create_demo(
                 guidance,
                 seed,
                 prompt,
+                mode,
                 init_image,
                 image2image_strength,
                 add_sampling_metadata,
