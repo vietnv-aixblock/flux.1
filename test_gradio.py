@@ -33,24 +33,25 @@ def load_model(
     preproc_state,
     load_lora=False,
     lora_model_name="black-forest-labs/FLUX.1-Depth-dev-lora",
+    lora_scale=0.9,
     load_ip_adapter=False,
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
 ):
     model_state, preproc_state = unload_model(model_state)
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
+            "black-forest-labs/FLUX.1-schnell",
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
         )
-        # If load_lora is checked, load depth lora and hyper-sd lora
+        # Nếu load_lora được tích thì load 1 LoRA weight và set scale
         if load_lora:
-            pipe.load_lora_weights(lora_model_name, adapter_name="depth")
             pipe.load_lora_weights(
-                hf_hub_download(
-                    "ByteDance/Hyper-SD", "Hyper-FLUX.1-dev-8steps-lora.safetensors"
-                ),
-                adapter_name="hyper-sd",
+                lora_model_name,
+                weight_name="lora.safetensors",
+                adapter_name="custom_lora",
             )
-            pipe.set_adapters(["depth", "hyper-sd"], adapter_weights=[0.85, 0.125])
+            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         if load_ip_adapter:
             pipe.load_ip_adapter(
                 ip_adapter_model_name,
@@ -71,7 +72,9 @@ def load_model(
         )
     elif mode == "Image to Image (Depth Control)":
         pipe = FluxControlPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-Depth-dev", torch_dtype=torch.bfloat16
+            "black-forest-labs/FLUX.1-Depth-dev",
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
         )
         if torch.cuda.is_available():
             pipe = pipe.to("cuda")
@@ -81,16 +84,14 @@ def load_model(
             )
         else:
             processor = None
-        # Nếu load_lora được tích thì load depth lora và hyper-sd lora
+        # Nếu load_lora được tích thì load 1 LoRA weight và set scale
         if load_lora:
-            pipe.load_lora_weights(lora_model_name, adapter_name="depth")
             pipe.load_lora_weights(
-                hf_hub_download(
-                    "ByteDance/Hyper-SD", "Hyper-FLUX.1-dev-8steps-lora.safetensors"
-                ),
-                adapter_name="hyper-sd",
+                lora_model_name,
+                weight_name="lora.safetensors",
+                adapter_name="custom_lora",
             )
-            pipe.set_adapters(["depth", "hyper-sd"], adapter_weights=[0.85, 0.125])
+            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         if load_ip_adapter:
             pipe.load_ip_adapter(
                 ip_adapter_model_name,
@@ -234,6 +235,15 @@ with gr.Blocks(css=demo_css) as demo:
                 value="black-forest-labs/FLUX.1-Depth-dev-lora",
                 visible=False,
                 info="HuggingFace model repo or path for LoRA weights.",
+            )
+            lora_scale_slider = gr.Slider(
+                minimum=0.0,
+                maximum=1.0,
+                value=0.9,
+                step=0.01,
+                label="LoRA Scale",
+                visible=False,
+                info="Adjust the influence of the loaded LoRA weights.",
             )
             ip_adapter_checkbox = gr.Checkbox(
                 label="Load IP-Adapter",
@@ -389,13 +399,17 @@ with gr.Blocks(css=demo_css) as demo:
     def clear_loading_msg():
         return gr.update(value="", visible=False)
 
-    # Show lora_model_box when lora_checkbox is checked
-    def toggle_lora_box(checked):
-        return gr.update(visible=checked)
+    # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
+    def toggle_lora_controls(checked):
+        return gr.update(visible=checked), gr.update(visible=checked)
 
-    lora_checkbox.change(toggle_lora_box, inputs=lora_checkbox, outputs=lora_model_box)
+    lora_checkbox.change(
+        toggle_lora_controls,
+        inputs=lora_checkbox,
+        outputs=[lora_model_box, lora_scale_slider],
+    )
 
-    # Show ip_adapter_model_box when ip_adapter_checkbox is checked
+    # Hiện ô ip_adapter_model_box khi ip_adapter_checkbox được tích
     def toggle_ip_adapter_box(checked):
         return gr.update(visible=checked)
 
@@ -432,6 +446,7 @@ with gr.Blocks(css=demo_css) as demo:
             preproc_state,
             lora_checkbox,
             lora_model_box,
+            lora_scale_slider,
             ip_adapter_checkbox,
             ip_adapter_model_box,
         ],
