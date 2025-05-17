@@ -111,11 +111,16 @@ def image_to_image_gr(
         return None
     if preproc_state is not None:
         # Xử lý depth luôn luôn
-        if isinstance(init_image, str):
+        # Theo chuẩn context7, gr.Image trả về numpy array (uint8, HWC) hoặc PIL.Image hoặc string
+        if isinstance(init_image, np.ndarray):
+            control_image = Image.fromarray(init_image.astype("uint8"))
+        elif isinstance(init_image, Image.Image):
+            control_image = init_image
+        elif isinstance(init_image, str):
             control_image = load_image(init_image)
         else:
-            control_image = init_image
-        # Đảm bảo control_image là RGB trước khi đưa vào preprocessor
+            raise ValueError("init_image phải là numpy array, PIL.Image hoặc string")
+        # Đảm bảo control_image là RGB
         if hasattr(control_image, "mode") and control_image.mode != "RGB":
             control_image = control_image.convert("RGB")
         control_image = preproc_state(control_image)[0]
