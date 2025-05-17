@@ -191,9 +191,18 @@ def image_to_image_gr(
         return Image.new("RGB", (width, height), color="gray")
 
 
-with gr.Blocks() as demo:
+# Thêm CSS cho hiệu ứng nhấp nháy
+demo_css = """
+.blinking {
+    animation: blinker 1s linear infinite;
+}
+@keyframes blinker {
+    50% { opacity: 0.3; }
+}
+"""
+
+with gr.Blocks(css=demo_css) as demo:
     gr.Markdown("# FLUX.1")
-    # Make the mode selection box half size, on the same row as Load Model button and model_loaded_msg
     with gr.Row():
         with gr.Column(scale=1):
             mode = gr.Dropdown(
@@ -203,7 +212,6 @@ with gr.Blocks() as demo:
                 info="Choose the generation mode.",
             )
         with gr.Column(scale=1):
-            load_btn = gr.Button("Load Model", size="lg")
         with gr.Column(scale=1):
             lora_checkbox = gr.Checkbox(
                 label="Load LoRA",
@@ -225,6 +233,8 @@ with gr.Blocks() as demo:
                 visible=False,
                 info="HuggingFace model repo or path for IP-Adapter weights.",
             )
+        with gr.Column(scale=1):
+            load_btn = gr.Button("Load Model", size="lg")
         with gr.Column(scale=2):
             model_loaded_msg = gr.Markdown("", visible=False)
     loading_msg = gr.Markdown("", visible=False)
@@ -383,6 +393,13 @@ with gr.Blocks() as demo:
         toggle_ip_adapter_box, inputs=ip_adapter_checkbox, outputs=ip_adapter_model_box
     )
 
+    # Hiệu ứng loading cho nút Load Model (thêm class blinking)
+    def set_btn_loading():
+        return gr.Button(interactive=False, elem_classes=["blinking"])
+
+    def unset_btn_loading():
+        return gr.Button(interactive=True, elem_classes=[])
+
     load_btn.click(
         set_loading_msg,
         inputs=None,
@@ -390,7 +407,7 @@ with gr.Blocks() as demo:
         queue=False,
     )
     load_btn.click(
-        lambda: gr.Button(interactive=False),
+        set_btn_loading,
         inputs=None,
         outputs=load_btn,
         queue=False,
@@ -415,7 +432,7 @@ with gr.Blocks() as demo:
         ],
     )
     load_btn.click(
-        lambda: gr.Button(interactive=True),
+        unset_btn_loading,
         inputs=None,
         outputs=load_btn,
         queue=False,
