@@ -212,7 +212,6 @@ with gr.Blocks(css=demo_css) as demo:
                 info="Choose the generation mode.",
             )
         with gr.Column(scale=1):
-        with gr.Column(scale=1):
             lora_checkbox = gr.Checkbox(
                 label="Load LoRA",
                 value=False,
