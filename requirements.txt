@@ -47,3 +47,6 @@ mcp
 torch==2.6.0 --index-url https://download.pytorch.org/whl/cu126
 torchvision==0.21.0 --index-url https://download.pytorch.org/whl/cu126
 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu126
+fire>=0.6.0
+invisible-watermark
+protobuf
