@@ -52,3 +52,4 @@ invisible-watermark
 protobuf
 huggingface_hub[hf_xet]
 einops
+git+https://github.com/huggingface/image_gen_aux
