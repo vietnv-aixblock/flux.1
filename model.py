@@ -73,6 +73,8 @@ from function_ml import (
 from logging_class import start_queue, write_log
 from misc import get_device_count
 from param_class import TrainingConfigFlux, TrainingConfigFluxLora
+from loguru import logger
+import gc
 
 # --------------------------------------------------------------------------------------------
 with open("models.yaml", "r") as file:
@@ -624,51 +626,46 @@ class MyModel(AIxBlockMLBase):
                 if prompt == "" or prompt is None:
                     return None, ""
 
-                if torch.cuda.is_available():
-                    device = "cuda"
-                else:
-                    device = "cpu"
-
-                try:
-                    pipe = AutoPipelineForText2Image.from_pretrained(
-                        model_id, torch_dtype=self.torch_dtype
-                    )
-                except Exception as e:
-                    model_id = "black-forest-labs/FLUX.1-dev"
-                    pipe = AutoPipelineForText2Image.from_pretrained(
-                        model_id, torch_dtype=self.torch_dtype
-                    )
-                    pipe.load_lora_weights(model_id, weight_name=chkpt_name)
-
-                # # for low GPU RAM, quantize from 16b to 8b
-                # quantize(pipe.transformer, weights=qfloat8)
-                # freeze(pipe.transformer)
-                # quantize(pipe.text_encoder_2, weights=qfloat8)
-                # freeze(pipe.text_encoder_2)
-
-                # # for even lower GPU RAM
-                # pipe.vae.enable_tiling()
-                # pipe.vae.enable_slicing()
-
-                pipe.enable_sequential_cpu_offload()
-
-                image = pipe(
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    num_inference_steps=num_inference_steps,
-                    guidance_scale=guidance_scale,
-                    generator=torch.Generator(device=device),
-                ).images[0]
-
-                pipe = None
-                torch.cuda.empty_cache()
+                with torch.no_grad():
+                    try:
+                        nf4_config = BitsAndBytesConfig(
+                            load_in_4bit=True,
+                            bnb_4bit_quant_type="nf4",
+                            bnb_4bit_compute_dtype=torch.bfloat16,
+                        )
+                        model_nf4 = FluxTransformer2DModel.from_pretrained(
+                            model_id,
+                            subfolder="transformer",
+                            quantization_config=nf4_config,
+                            torch_dtype=torch.bfloat16,
+                            # device_map=device,
+                        )
+                        pipe = FluxPipeline.from_pretrained(
+                            model_id,
+                            transformer=model_nf4,
+                            torch_dtype=torch.bfloat16,
+                            device_map="balanced",
+                        )
+                        image = pipe(
+                            prompt=prompt,
+                            width=width,
+                            height=height,
+                            num_inference_steps=num_inference_steps,
+                            guidance_scale=guidance_scale,
+                        ).images[0]
+                    except Exception as e:
+                        logger.error(str(e))
 
                 buffered = BytesIO()
                 image.save(buffered, format=format)
                 image.save(const.PROJ_DIR.joinpath(f"image.{format}"))
                 img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 generated_url = f"/downloads?path=image.{format}"
+
+                del pipe, model_nf4
+                gc.collect()
+                torch.cuda.empty_cache()
+
                 result = {
                     "model_version": model_id,
                     "result": {
@@ -709,10 +706,6 @@ class MyModel(AIxBlockMLBase):
         # initialize
         task = kwargs.get("task", "text-to-image")
         model_id = kwargs.get("model_id", "black-forest-labs/FLUX.1-dev")
-        if torch.cuda.is_available():
-            device = "cuda"
-        else:
-            device = "cpu"
         # Initialize pipe as None - will be loaded when button is clicked
         pipe_demo = None
         model_nf4 = None
@@ -920,301 +913,6 @@ class MyModel(AIxBlockMLBase):
         import gradio as gr
 
         return {"message": "Done", "result": "Done"}
-
-        css = """
-        .feedback .tab-nav {
-            justify-content: center;
-        }
-
-        .feedback button.selected{
-            background-color:rgb(115,0,254); !important;
-            color: #ffff !important;
-        }
-
-        .feedback button{
-            font-size: 16px !important;
-            color: black !important;
-            border-radius: 12px !important;
-            display: block !important;
-            margin-right: 17px !important;
-            border: 1px solid var(--border-color-primary);
-        }
-
-        .feedback div {
-            border: none !important;
-            justify-content: center;
-            margin-bottom: 5px;
-        }
-
-        .feedback .panel{
-            background: none !important;
-        }
-
-
-        .feedback .unpadded_box{
-            border-style: groove !important;
-            width: 500px;
-            height: 345px;
-            margin: auto;
-        }
-
-        .feedback .secondary{
-            background: rgb(225,0,170);
-            color: #ffff !important;
-        }
-
-        .feedback .primary{
-            background: rgb(115,0,254);
-            color: #ffff !important;
-        }
-
-        .upload_image button{
-            border: 1px var(--border-color-primary) !important;
-        }
-        .upload_image {
-            align-items: center !important;
-            justify-content: center !important;
-            border-style: dashed !important;
-            width: 500px;
-            height: 345px;
-            padding: 10px 10px 10px 10px
-        }
-        .upload_image .wrap{
-            align-items: center !important;
-            justify-content: center !important;
-            border-style: dashed !important;
-            width: 500px;
-            height: 345px;
-            padding: 10px 10px 10px 10px
-        }
-
-        .webcam_style .wrap{
-            border: none !important;
-            align-items: center !important;
-            justify-content: center !important;
-            height: 345px;
-        }
-
-        .webcam_style .feedback button{
-            border: none !important;
-            height: 345px;
-        }
-
-        .webcam_style .unpadded_box {
-            all: unset !important;
-        }
-
-        .btn-custom {
-            background: rgb(0,0,0) !important;
-            color: #ffff !important;
-            width: 200px;
-        }
-
-        .title1 {
-            margin-right: 90px !important;
-        }
-
-        .title1 block{
-            margin-right: 90px !important;
-        }
-
-        """
-
-        with gr.Blocks(css=css) as demo:
-            with gr.Row():
-                with gr.Column(scale=10):
-                    gr.Markdown(
-                        """
-                        # Theme preview: `AIxBlock`
-                        """
-                    )
-
-            import numpy as np
-
-            def predict(input_img):
-                import cv2
-
-                result = self.action(
-                    project, "predict", collection="", data={"img": input_img}
-                )
-                print(result)
-                if result["result"]:
-                    boxes = result["result"]["boxes"]
-                    names = result["result"]["names"]
-                    labels = result["result"]["labels"]
-
-                    for box, label in zip(boxes, labels):
-                        box = [int(i) for i in box]
-                        label = int(label)
-                        input_img = cv2.rectangle(
-                            input_img, box, color=(255, 0, 0), thickness=2
-                        )
-                        # input_img = cv2.(input_img, names[label], (box[0], box[1]), color=(255, 0, 0), size=1)
-                        input_img = cv2.putText(
-                            input_img,
-                            names[label],
-                            (box[0], box[1]),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            1,
-                            (0, 255, 0),
-                            2,
-                        )
-
-                return input_img
-
-            def download_btn(evt: gr.SelectData):
-                print(f"Downloading {dataset_choosen}")
-                return f'<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"><a href="/my_ml_backend/datasets/{evt.value}" style="font-size:50px"> <i class="fa fa-download"></i> Download this dataset</a>'
-
-            def trial_training(dataset_choosen):
-                print(f"Training with {dataset_choosen}")
-                result = self.action(
-                    project, "train", collection="", data=dataset_choosen
-                )
-                return result["message"]
-
-            def get_checkpoint_list(project):
-                print("GETTING CHECKPOINT LIST")
-                print(f"Proejct: {project}")
-                import os
-
-                checkpoint_list = [
-                    i for i in os.listdir("my_ml_backend/models") if i.endswith(".pt")
-                ]
-                checkpoint_list = [
-                    f"<a href='./my_ml_backend/checkpoints/{i}' download>{i}</a>"
-                    for i in checkpoint_list
-                ]
-                if os.path.exists(f"my_ml_backend/{project}"):
-                    for folder in os.listdir(f"my_ml_backend/{project}"):
-                        if "train" in folder:
-                            project_checkpoint_list = [
-                                i
-                                for i in os.listdir(
-                                    f"my_ml_backend/{project}/{folder}/weights"
-                                )
-                                if i.endswith(".pt")
-                            ]
-                            project_checkpoint_list = [
-                                f"<a href='./my_ml_backend/{project}/{folder}/weights/{i}' download>{folder}-{i}</a>"
-                                for i in project_checkpoint_list
-                            ]
-                            checkpoint_list.extend(project_checkpoint_list)
-
-                return "<br>".join(checkpoint_list)
-
-            def tab_changed(tab):
-                if tab == "Download":
-                    get_checkpoint_list(project=project)
-
-            def upload_file(file):
-                return "File uploaded!"
-
-            with gr.Tabs(elem_classes=["feedback"]) as parent_tabs:
-                with gr.TabItem("Image", id=0):
-                    with gr.Row():
-                        gr.Markdown("## Input", elem_classes=["title1"])
-                        gr.Markdown("## Output", elem_classes=["title1"])
-
-                    gr.Interface(
-                        predict,
-                        gr.Image(
-                            elem_classes=["upload_image"],
-                            sources="upload",
-                            container=False,
-                            height=345,
-                            show_label=False,
-                        ),
-                        gr.Image(
-                            elem_classes=["upload_image"],
-                            container=False,
-                            height=345,
-                            show_label=False,
-                        ),
-                        allow_flagging=False,
-                    )
-
-                # with gr.TabItem("Webcam", id=1):
-                #     gr.Image(elem_classes=["webcam_style"], sources="webcam", container = False, show_label = False, height = 450)
-
-                # with gr.TabItem("Video", id=2):
-                #     gr.Image(elem_classes=["upload_image"], sources="clipboard", height = 345,container = False, show_label = False)
-
-                # with gr.TabItem("About", id=3):
-                #     gr.Label("About Page")
-
-                with gr.TabItem("Trial Train", id=2):
-                    gr.Markdown("# Trial Train")
-                    with gr.Column():
-                        with gr.Column():
-                            gr.Markdown(
-                                "## Dataset template to prepare your own and initiate training"
-                            )
-                            with gr.Row():
-                                # get all filename in datasets folder
-                                if not os.path.exists(f"./datasets"):
-                                    os.makedirs(f"./datasets")
-                                datasets = [
-                                    (f"dataset{i}", name)
-                                    for i, name in enumerate(os.listdir("./datasets"))
-                                ]
-
-                                dataset_choosen = gr.Dropdown(
-                                    datasets,
-                                    label="Choose dataset",
-                                    show_label=False,
-                                    interactive=True,
-                                    type="value",
-                                )
-                                # gr.Button("Download this dataset", variant="primary").click(download_btn, dataset_choosen, gr.HTML())
-                                download_link = gr.HTML(
-                                    """
-                                        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-                                        <a href='' style="font-size:24px"><i class="fa fa-download" ></i> Download this dataset</a>"""
-                                )
-
-                                dataset_choosen.select(
-                                    download_btn, None, download_link
-                                )
-
-                                # when the button is clicked, download the dataset from dropdown
-                                # download_btn
-                            gr.Markdown(
-                                "## Upload your sample dataset to have a trial training"
-                            )
-                            # gr.File(file_types=['tar','zip'])
-                            gr.Interface(
-                                predict,
-                                gr.File(
-                                    elem_classes=["upload_image"],
-                                    file_types=["tar", "zip"],
-                                ),
-                                gr.Label(
-                                    elem_classes=["upload_image"], container=False
-                                ),
-                                allow_flagging=False,
-                            )
-                            with gr.Row():
-                                gr.Markdown(f"## You can attemp up to {2} FLOps")
-                                gr.Button("Trial Train", variant="primary").click(
-                                    trial_training, dataset_choosen, None
-                                )
-
-                # with gr.TabItem("Download"):
-                #     with gr.Column():
-                #         gr.Markdown("## Download")
-                #         with gr.Column():
-                #             gr.HTML(get_checkpoint_list(project))
-
-        gradio_app, local_url, share_url = demo.launch(
-            share=True,
-            quiet=True,
-            prevent_thread_lock=True,
-            server_name="0.0.0.0",
-            show_error=True,
-        )
-
-        return {"share_url": share_url, "local_url": local_url}
 
     def download(self, project, **kwargs):
         from flask import request, send_from_directory
