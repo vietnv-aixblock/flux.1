@@ -200,24 +200,32 @@ with gr.Blocks() as demo:
                 ["Text to Image", "Image to Image (Depth Control)"],
                 value="Text to Image",
                 label="Mode",
-                info="Choose the generation mode."
+                info="Choose the generation mode.",
             )
         with gr.Column(scale=1):
             load_btn = gr.Button("Load Model", size="lg")
         with gr.Column(scale=1):
-            lora_checkbox = gr.Checkbox(label="Load LoRA", value=False, info="Enable to load a LoRA model for fine-tuning.")
+            lora_checkbox = gr.Checkbox(
+                label="Load LoRA",
+                value=False,
+                info="Enable to load a LoRA model for fine-tuning.",
+            )
             lora_model_box = gr.Textbox(
                 label="LoRA Model",
                 value="black-forest-labs/FLUX.1-Depth-dev-lora",
                 visible=False,
-                info="HuggingFace model repo or path for LoRA weights."
+                info="HuggingFace model repo or path for LoRA weights.",
             )
-            ip_adapter_checkbox = gr.Checkbox(label="Load IP-Adapter", value=False, info="Enable to load an IP-Adapter for image prompt conditioning.")
+            ip_adapter_checkbox = gr.Checkbox(
+                label="Load IP-Adapter",
+                value=False,
+                info="Enable to load an IP-Adapter for image prompt conditioning.",
+            )
             ip_adapter_model_box = gr.Textbox(
                 label="IP-Adapter Model",
                 value="XLabs-AI/flux-ip-adapter",
                 visible=False,
-                info="HuggingFace model repo or path for IP-Adapter weights."
+                info="HuggingFace model repo or path for IP-Adapter weights.",
             )
         with gr.Column(scale=2):
             model_loaded_msg = gr.Markdown("", visible=False)
@@ -230,57 +238,127 @@ with gr.Blocks() as demo:
         prompt = gr.Textbox(
             label="Prompt",
             value="A cat holding a sign that says hello world",
-            info="Describe the image you want to generate."
+            info="Describe the image you want to generate.",
         )
         with gr.Accordion("Advanced Options", open=False):
             guidance_scale = gr.Slider(
-                0, 20, value=0.0, step=0.1, label="Guidance Scale",
-                info="How strongly the model follows the prompt (higher = more guidance)."
+                0,
+                20,
+                value=0.0,
+                step=0.1,
+                label="Guidance Scale",
+                info="How strongly the model follows the prompt (higher = more guidance).",
             )
-            height = gr.Slider(256, 1536, value=768, step=8, label="Height",
-                               info="Height of the generated image in pixels.")
-            width = gr.Slider(256, 2048, value=1360, step=8, label="Width",
-                              info="Width of the generated image in pixels.")
+            height = gr.Slider(
+                256,
+                1536,
+                value=768,
+                step=8,
+                label="Height",
+                info="Height of the generated image in pixels.",
+            )
+            width = gr.Slider(
+                256,
+                2048,
+                value=1360,
+                step=8,
+                label="Width",
+                info="Width of the generated image in pixels.",
+            )
             num_inference_steps = gr.Slider(
-                1, 100, value=4, step=1, label="Num Inference Steps",
-                info="Number of denoising steps (higher = better quality, slower)."
+                1,
+                100,
+                value=4,
+                step=1,
+                label="Num Inference Steps",
+                info="Number of denoising steps (higher = better quality, slower).",
             )
             max_sequence_length = gr.Slider(
-                32, 512, value=256, step=8, label="Max Sequence Length",
-                info="Maximum token length for the prompt."
+                32,
+                512,
+                value=256,
+                step=8,
+                label="Max Sequence Length",
+                info="Maximum token length for the prompt.",
             )
-        gen_btn = gr.Button("Generate", info="Click to generate an image from the prompt.")
-        img_out = gr.Image(label="Output Image", info="Generated image will appear here.")
+        gen_btn = gr.Button(
+            "Generate", info="Click to generate an image from the prompt."
+        )
+        img_out = gr.Image(
+            label="Output Image", info="Generated image will appear here."
+        )
 
     with gr.Column(visible=False) as img2img_col:
-        init_img = gr.Image(label="Input Image", info="Upload an input image for depth-based image-to-image generation.")
+        init_img = gr.Image(
+            label="Input Image",
+            info="Upload an input image for depth-based image-to-image generation.",
+        )
         prompt2 = gr.Textbox(
             label="Prompt",
             value="A robot made of exotic candies and chocolates of different kinds. The background is filled with confetti and celebratory gifts.",
-            info="Describe the modifications or style for the output image."
+            info="Describe the modifications or style for the output image.",
         )
         with gr.Accordion("Advanced Options", open=False):
             guidance_scale2 = gr.Slider(
-                0, 20, value=10.0, step=0.1, label="Guidance Scale",
-                info="How strongly the model follows the prompt (higher = more guidance)."
+                0,
+                20,
+                value=10.0,
+                step=0.1,
+                label="Guidance Scale",
+                info="How strongly the model follows the prompt (higher = more guidance).",
             )
-            height2 = gr.Slider(256, 1536, value=1024, step=8, label="Height",
-                                info="Height of the generated image in pixels.")
-            width2 = gr.Slider(256, 2048, value=1024, step=8, label="Width",
-                               info="Width of the generated image in pixels.")
+            height2 = gr.Slider(
+                256,
+                1536,
+                value=1024,
+                step=8,
+                label="Height",
+                info="Height of the generated image in pixels.",
+            )
+            width2 = gr.Slider(
+                256,
+                2048,
+                value=1024,
+                step=8,
+                label="Width",
+                info="Width of the generated image in pixels.",
+            )
             num_inference_steps2 = gr.Slider(
-                1, 100, value=30, step=1, label="Num Inference Steps",
-                info="Number of denoising steps (higher = better quality, slower)."
+                1,
+                100,
+                value=30,
+                step=1,
+                label="Num Inference Steps",
+                info="Number of denoising steps (higher = better quality, slower).",
             )
             max_sequence_length2 = gr.Slider(
-                32, 512, value=256, step=8, label="Max Sequence Length",
-                info="Maximum token length for the prompt."
+                32,
+                512,
+                value=256,
+                step=8,
+                label="Max Sequence Length",
+                info="Maximum token length for the prompt.",
             )
-            strength2 = gr.Slider(0.0, 1.0, value=0.5, step=0.01, label="Strength",
-                                  info="How much to transform the input image (higher = more change).")
-            seed2 = gr.Number(value=42, label="Seed (int)", info="Random seed for reproducibility (set to None for random).")
-        gen_btn2 = gr.Button("Generate", info="Click to generate an image from the input image and prompt.")
-        img_out2 = gr.Image(label="Output Image", info="Generated image will appear here.")
+            strength2 = gr.Slider(
+                0.0,
+                1.0,
+                value=0.5,
+                step=0.01,
+                label="Strength",
+                info="How much to transform the input image (higher = more change).",
+            )
+            seed2 = gr.Number(
+                value=42,
+                label="Seed (int)",
+                info="Random seed for reproducibility (set to None for random).",
+            )
+        gen_btn2 = gr.Button(
+            "Generate",
+            info="Click to generate an image from the input image and prompt.",
+        )
+        img_out2 = gr.Image(
+            label="Output Image", info="Generated image will appear here."
+        )
         if not HAS_DEPTH:
             gr.Markdown(
                 "<span style='color:red'>Missing package image_gen_aux or DepthPreprocessor! Please install to use Depth Control.</span>"
