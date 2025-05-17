@@ -293,11 +293,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     demo = create_demo(args.name, args.device, args.offload)
-    gradio_app, local_url, share_url = demo.launch(
+    demo.launch(
         share=True,
-        quiet=True,
-        prevent_thread_lock=True,
+        # quiet=True,
+        # prevent_thread_lock=True,
         server_name="0.0.0.0",
         show_error=True,
     )
-    logger.info(share_url)
+    # logger.info(share_url)
