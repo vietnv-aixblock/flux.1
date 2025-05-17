@@ -275,7 +275,7 @@ with gr.Blocks() as demo:
         show_progress=True,
     )
     load_btn.click(
-        set_loaded_msg,
+        clear_loading_msg,
         inputs=None,
         outputs=loading_msg,
         queue=False,
