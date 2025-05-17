@@ -162,17 +162,22 @@ def image_to_image_gr(
 
 with gr.Blocks() as demo:
     gr.Markdown("# FLUX.1")
-    mode = gr.Dropdown(
-        ["Text to Image", "Image to Image (Depth Control)"],
-        value="Text to Image",
-        label="Mode",
-    )
+    # Đặt ô chọn mode nhỏ lại 1 nửa, cùng hàng với nút Load Model và model_loaded_msg
+    with gr.Row():
+        with gr.Column(scale=1):
+            mode = gr.Dropdown(
+                ["Text to Image", "Image to Image (Depth Control)"],
+                value="Text to Image",
+                label="Mode",
+            )
+        with gr.Column(scale=1):
+            load_btn = gr.Button("Load Model", size="sm")
+        with gr.Column(scale=2):
+            model_loaded_msg = gr.Markdown("", visible=False)
+    loading_msg = gr.Markdown("", visible=False)
+
     model_state = gr.State(None)
     preproc_state = gr.State(None)
-    with gr.Row():
-        load_btn = gr.Button("Load Model", size="sm")
-        model_loaded_msg = gr.Markdown("", visible=False)
-    loading_msg = gr.Markdown("", visible=False)
 
     with gr.Column(visible=True) as txt2img_col:
         prompt = gr.Textbox(
