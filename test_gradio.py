@@ -26,49 +26,59 @@ def unload_model(model_state):
 
 
 # Hàm load model
-def load_model(mode, model_state, preproc_state):
+def load_model(mode, model_state, preproc_state, progress=gr.Progress()):
     model_state, preproc_state = unload_model(model_state)
+    progress(0.1, desc="Bắt đầu tải model...")
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
         )
+        progress(0.7, desc="Đang enable model cpu offload...")
         pipe.enable_model_cpu_offload()
+        progress(1.0, desc="Hoàn tất!")
         return (
             pipe,
             None,
             gr.update(visible=True),
             gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            gr.update(
+                visible=True,
+                value="<span style='color:green'>Model đã sẵn sàng!</span>",
+            ),
         )
     elif mode == "Image to Image (Depth Control)":
         pipe = FluxControlPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-Depth-dev", torch_dtype=torch.bfloat16
         )
+        progress(0.5, desc="Đang kiểm tra CUDA...")
         if torch.cuda.is_available():
             pipe = pipe.to("cuda")
+        progress(0.7, desc="Đang tải DepthPreprocessor...")
         if HAS_DEPTH:
             processor = DepthPreprocessor.from_pretrained(
                 "LiheYoung/depth-anything-large-hf"
             )
         else:
             processor = None
+        progress(1.0, desc="Hoàn tất!")
         return (
             pipe,
             processor,
             gr.update(visible=False),
             gr.update(visible=True),
-            gr.update(visible=False),
-            gr.update(visible=True),
+            gr.update(
+                visible=True,
+                value="<span style='color:green'>Model đã sẵn sàng!</span>",
+            ),
         )
     else:
+        progress(1.0, desc="Không có model phù hợp")
         return (
             None,
             None,
             gr.update(visible=False),
             gr.update(visible=False),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            gr.update(visible=False, value=""),
         )
 
 
