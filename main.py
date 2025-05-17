@@ -164,7 +164,7 @@ if __name__ == "__main__":
 
     import uvicorn
 
-    def find_available_port(start_port=3000, max_port=5000):
+    def find_available_port(start_port=1000, max_port=5000):
         for port in range(start_port, max_port + 1):
             try:
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
