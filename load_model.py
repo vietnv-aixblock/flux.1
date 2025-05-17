@@ -30,12 +30,12 @@ def _load():
         torch_dtype=torch.bfloat16,
         # device_map=device,
     )
-    pipe_demo = FluxPipeline.from_pretrained(
-        model_id,
-        transformer=model_nf4,
-        torch_dtype=torch.bfloat16,
-        device_map="balanced",
-    )
+    # pipe_demo = FluxPipeline.from_pretrained(
+    #     model_id,
+    #     transformer=model_nf4,
+    #     torch_dtype=torch.bfloat16,
+    #     device_map="balanced",
+    # )
 
 
 _load()
