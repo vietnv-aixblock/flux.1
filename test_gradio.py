@@ -26,16 +26,13 @@ def unload_model(model_state):
 
 
 # Hàm load model
-def load_model(mode, model_state, preproc_state, progress=gr.Progress()):
+def load_model(mode, model_state, preproc_state):
     model_state, preproc_state = unload_model(model_state)
-    progress(0.1, desc="Bắt đầu tải model...")
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-schnell", torch_dtype=torch.bfloat16
         )
-        progress(0.7, desc="Đang enable model cpu offload...")
         pipe.enable_model_cpu_offload()
-        progress(1.0, desc="Hoàn tất!")
         return (
             pipe,
             None,
@@ -50,17 +47,14 @@ def load_model(mode, model_state, preproc_state, progress=gr.Progress()):
         pipe = FluxControlPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-Depth-dev", torch_dtype=torch.bfloat16
         )
-        progress(0.5, desc="Đang kiểm tra CUDA...")
         if torch.cuda.is_available():
             pipe = pipe.to("cuda")
-        progress(0.7, desc="Đang tải DepthPreprocessor...")
         if HAS_DEPTH:
             processor = DepthPreprocessor.from_pretrained(
                 "LiheYoung/depth-anything-large-hf"
             )
         else:
             processor = None
-        progress(1.0, desc="Hoàn tất!")
         return (
             pipe,
             processor,
@@ -72,7 +66,6 @@ def load_model(mode, model_state, preproc_state, progress=gr.Progress()):
             ),
         )
     else:
-        progress(1.0, desc="Không có model phù hợp")
         return (
             None,
             None,
@@ -176,9 +169,9 @@ with gr.Blocks() as demo:
     )
     model_state = gr.State(None)
     preproc_state = gr.State(None)
-    load_btn = gr.Button("Load Model")
-    unload_btn = gr.Button("Unload Model")
-    model_loaded_msg = gr.Markdown("", visible=False)
+    with gr.Row():
+        load_btn = gr.Button("Load Model", size="sm")
+        model_loaded_msg = gr.Markdown("", visible=False)
     loading_msg = gr.Markdown("", visible=False)
 
     with gr.Column(visible=True) as txt2img_col:
@@ -263,6 +256,12 @@ with gr.Blocks() as demo:
         queue=False,
     )
     load_btn.click(
+        lambda: gr.Button(interactive=False),
+        inputs=None,
+        outputs=load_btn,
+        queue=False,
+    )
+    load_btn.click(
         load_model,
         inputs=[mode, model_state, preproc_state],
         outputs=[
@@ -272,7 +271,12 @@ with gr.Blocks() as demo:
             img2img_col,
             model_loaded_msg,
         ],
-        show_progress=True,
+    )
+    load_btn.click(
+        lambda: gr.Button(interactive=True),
+        inputs=None,
+        outputs=load_btn,
+        queue=False,
     )
     load_btn.click(
         clear_loading_msg,
@@ -280,10 +284,6 @@ with gr.Blocks() as demo:
         outputs=loading_msg,
         queue=False,
     )
-    unload_btn.click(
-        unload_model, inputs=model_state, outputs=[model_state, preproc_state]
-    )
-    unload_btn.click(clear_loading_msg, inputs=None, outputs=loading_msg, queue=False)
 
     gen_btn.click(
         text_to_image_gr,
