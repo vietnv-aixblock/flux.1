@@ -32,7 +32,7 @@ def load_model(
     model_state,
     preproc_state,
     load_lora=False,
-    lora_model_name="black-forest-labs/FLUX.1-Depth-dev-lora",
+    lora_model_name="XLabs-AI/flux-furry-lora",
     lora_scale=0.9,
     load_ip_adapter=False,
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
@@ -42,7 +42,7 @@ def load_model(
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-schnell",
             torch_dtype=torch.bfloat16,
-            device_map="auto",
+            device_map="balanced",
         )
         # Nếu load_lora được tích thì load 1 LoRA weight và set scale
         if load_lora:
@@ -74,7 +74,7 @@ def load_model(
         pipe = FluxControlPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-Depth-dev",
             torch_dtype=torch.bfloat16,
-            device_map="auto",
+            device_map="balanced",
         )
         if torch.cuda.is_available():
             pipe = pipe.to("cuda")
@@ -232,7 +232,7 @@ with gr.Blocks(css=demo_css) as demo:
             )
             lora_model_box = gr.Textbox(
                 label="LoRA Model",
-                value="black-forest-labs/FLUX.1-Depth-dev-lora",
+                value="XLabs-AI/flux-furry-lora",
                 visible=False,
                 info="HuggingFace model repo or path for LoRA weights.",
             )
