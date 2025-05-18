@@ -494,7 +494,6 @@ with gr.Blocks(css=demo_css) as demo:
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
-                gr.update(visible=False, value=""),
                 gr.update(visible=False),
                 gr.update(visible=False),
             )
@@ -506,7 +505,6 @@ with gr.Blocks(css=demo_css) as demo:
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
-                gr.update(visible=False, value=""),
                 gr.update(visible=False),
                 gr.update(visible=False),
             )
@@ -518,7 +516,6 @@ with gr.Blocks(css=demo_css) as demo:
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
-                gr.update(visible=False, value=""),
                 gr.update(visible=True),
                 gr.update(visible=True),
             )
@@ -530,7 +527,6 @@ with gr.Blocks(css=demo_css) as demo:
                 None,
                 None,
                 gr.Button(interactive=True, elem_classes=[], variant="primary"),
-                gr.update(visible=False, value=""),
                 gr.update(visible=False),
                 gr.update(visible=False),
             )
