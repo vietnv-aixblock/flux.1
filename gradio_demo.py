@@ -566,11 +566,11 @@ with gr.Blocks(css=demo_css) as demo:
         yield (
             gr.update(value="Loading model..."),  # status_msg_box
             gr.Button(interactive=False, variant="primary"),  # load_btn
-            gr.Keep(),  # model_state
-            gr.Keep(),  # preproc_state
-            gr.Keep(),  # txt2img_col
-            gr.Keep(),  # img2img_col
-            gr.Keep(),  # ipadapter_col
+            gr.skip(),  # model_state
+            gr.skip(),  # preproc_state
+            gr.skip(),  # txt2img_col
+            gr.skip(),  # img2img_col
+            gr.skip(),  # ipadapter_col
         )
 
         # Load the model (this is the potentially long-running part)
