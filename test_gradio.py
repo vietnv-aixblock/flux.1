@@ -430,6 +430,7 @@ with gr.Blocks(css=demo_css) as demo:
         set_loading_msg,
         inputs=None,
         outputs=loading_msg,
+        queue=False,
     )
     load_btn.click(
         set_btn_loading,
