@@ -546,6 +546,56 @@ with gr.Blocks(css=demo_css) as demo:
     def clear_loading_msg():
         return gr.update(value="")
 
+    def start_loading():
+        return gr.update(value="Loading model..."), gr.Button(
+            interactive=False, variant="primary"
+        )
+
+    def handle_load_click(
+        mode,
+        model_state,
+        preproc_state,
+        lora_checkbox,
+        lora_model_box,
+        lora_scale_slider,
+        lora_weight_name_box,
+        ip_adapter_model_box_global,
+        ip_adapter_weight_name_box_global,
+    ):
+        # Initial state: Loading message and disabled button
+        yield gr.update(value="Loading model..."), gr.Button(
+            interactive=False, variant="primary"
+        )
+
+        # Load the model (this is the potentially long-running part)
+        new_model_state, new_preproc_state, txt2img_viz, img2img_viz, ipadapter_viz = (
+            load_model(
+                mode,
+                model_state,
+                preproc_state,
+                lora_checkbox,
+                lora_model_box,
+                lora_scale_slider,
+                lora_weight_name_box,
+                ip_adapter_model_box_global,
+                ip_adapter_weight_name_box_global,
+            )
+        )
+
+        # Final state: Done message and re-enabled button, and update column visibility
+        yield (
+            gr.update(value="Done"),
+            gr.Button(interactive=True, variant="primary"),
+            new_model_state,
+            new_preproc_state,
+            txt2img_viz,
+            img2img_viz,
+            ipadapter_viz,
+            # Need to return all outputs that the original load_btn.click chain updated
+            # ip_adapter_model_box_global, # These were updated by mode.change, not load_btn.click directly
+            # ip_adapter_weight_name_box_global,
+        )
+
     # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
     def toggle_lora_controls(checked):
         return (
@@ -561,25 +611,11 @@ with gr.Blocks(css=demo_css) as demo:
     )
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
-    def set_btn_loading():
-        return gr.Button(interactive=False, variant="primary")
-
     def unset_btn_loading():
         return gr.Button(interactive=True, elem_classes=[], variant="primary")
 
     load_btn.click(
-        lambda: set_loading_msg(),
-        inputs=None,
-        outputs=status_msg_box,
-        queue=False,
-    )
-    load_btn.click(
-        set_btn_loading,
-        inputs=None,
-        outputs=load_btn,
-    )
-    load_btn.click(
-        load_model,
+        handle_load_click,
         inputs=[
             mode,
             model_state,
@@ -592,27 +628,14 @@ with gr.Blocks(css=demo_css) as demo:
             ip_adapter_weight_name_box_global,
         ],
         outputs=[
+            status_msg_box,
+            load_btn,
             model_state,
             preproc_state,
             txt2img_col,
             img2img_col,
             ipadapter_col,
         ],
-    )
-    load_btn.click(
-        set_loaded_msg,
-        inputs=None,
-        outputs=status_msg_box,
-    )
-    load_btn.click(
-        unset_btn_loading,
-        inputs=None,
-        outputs=load_btn,
-    )
-    load_btn.click(
-        clear_loading_msg,
-        inputs=None,
-        outputs=status_msg_box,
     )
 
     gen_btn.click(
