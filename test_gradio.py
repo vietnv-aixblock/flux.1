@@ -42,7 +42,7 @@ def load_model(
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-schnell",
             torch_dtype=torch.bfloat16,
-            device_map="balanced",
+            # device_map="balanced",
         )
         # Nếu load_lora được tích thì load 1 LoRA weight và set scale
         if load_lora:
@@ -74,7 +74,7 @@ def load_model(
         pipe = FluxControlPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-Depth-dev",
             torch_dtype=torch.bfloat16,
-            device_map="balanced",
+            # device_map="balanced",
         )
         if torch.cuda.is_available():
             pipe = pipe.to("cuda")
