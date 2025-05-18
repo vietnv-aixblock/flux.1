@@ -65,8 +65,7 @@ def load_model(
                 visible=True,
                 value="<span style='color:green'>Model is ready!</span>",
             ),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            set_loaded_msg(),
         )
     elif mode == "Image to Image (Depth Control)":
         pipe = FluxControlPipeline.from_pretrained(
@@ -101,8 +100,7 @@ def load_model(
                 visible=True,
                 value="<span style='color:green'>Model is ready!</span>",
             ),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            set_loaded_msg(),
         )
     elif mode == "Image to Image (IP Adapter)":
         pipe = FluxPipeline.from_pretrained(
@@ -132,8 +130,7 @@ def load_model(
                 visible=True,
                 value="<span style='color:green'>Model is ready!</span>",
             ),
-            gr.update(visible=True),
-            gr.update(visible=True),
+            set_loaded_msg(),
         )
     else:
         return (
@@ -142,9 +139,7 @@ def load_model(
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
-            gr.update(visible=False, value=""),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            clear_loading_msg(),
         )
 
 
