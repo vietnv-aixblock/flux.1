@@ -747,7 +747,7 @@ class MyModel(AIxBlockMLBase):
                         width=width,
                         height=height,
                         prompt=prompt,
-                        negative_prompt="",
+                        negative_prompt=negative_prompt,
                         true_cfg_scale=4.0,
                         generator=torch.Generator().manual_seed(4444),
                         ip_adapter_image=control_image,
@@ -771,8 +771,9 @@ class MyModel(AIxBlockMLBase):
                 ip_adapter_weight_name = kwargs.get("ip_adapter_weight_name", None)
                 img_base64 = kwargs.get("img_base64", None)
                 negative_prompt = kwargs.get("negative_prompt", None)
-                if img_base64.startswith("data:image"):
-                    img_base64 = img_base64.split(",")[1]
+                if img_base64:
+                    if img_base64.startswith("data:image"):
+                        img_base64 = img_base64.split(",")[1]
 
                 image_bytes = base64.b64decode(img_base64)
                 image_input = Image.open(io.BytesIO(image_bytes))
