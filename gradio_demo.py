@@ -63,7 +63,7 @@ def load_model(
             gr.update(visible=False),
             gr.update(
                 visible=True,
-                value="<span style='color:green'>Model is ready!</span>",
+                value="Model is ready!",
             ),
             set_loaded_msg(),
         )
@@ -98,7 +98,7 @@ def load_model(
             gr.update(visible=False),
             gr.update(
                 visible=True,
-                value="<span style='color:green'>Model is ready!</span>",
+                value="Model is ready!",
             ),
             set_loaded_msg(),
         )
@@ -128,7 +128,7 @@ def load_model(
             gr.update(visible=True),
             gr.update(
                 visible=True,
-                value="<span style='color:green'>Model is ready!</span>",
+                value="Model is ready!",
             ),
             set_loaded_msg(),
         )
@@ -567,12 +567,20 @@ with gr.Blocks(css=demo_css) as demo:
             gr.update(visible=checked),
             gr.update(visible=checked),
             gr.update(visible=checked),
+            gr.update(visible=checked),
+            gr.update(visible=checked),
         )
 
     lora_checkbox.change(
         toggle_lora_controls,
         inputs=lora_checkbox,
-        outputs=[lora_model_box, lora_scale_slider, lora_weight_name_box],
+        outputs=[
+            lora_model_box,
+            lora_scale_slider,
+            lora_weight_name_box,
+            ip_adapter_model_box_global,
+            ip_adapter_weight_name_box_global,
+        ],
     )
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
