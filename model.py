@@ -657,7 +657,8 @@ class MyModel(AIxBlockMLBase):
                     pipe_predict = FluxPipeline.from_pretrained(
                         model_id,
                         torch_dtype=torch.bfloat16,
-                    ).to("cuda")
+                        device_map="balanced",
+                    )
                     if load_lora:
                         pipe_predict.load_lora_weights(
                             lora_model_name,
@@ -667,12 +668,13 @@ class MyModel(AIxBlockMLBase):
                         pipe_predict.set_adapters(
                             ["custom_lora"], adapter_weights=[1.0]
                         )
-                    pipe_predict.enable_model_cpu_offload()
+                    # pipe_predict.enable_model_cpu_offload()
                 elif task.lower() == "depth control":
                     pipe_predict = FluxControlPipeline(
                         model_id,
                         torch_dtype=torch.bfloat16,
-                    ).to("cuda")
+                        device_map="balanced",
+                    )
                     if load_lora:
                         pipe_predict.load_lora_weights(
                             lora_model_name,
@@ -682,12 +684,13 @@ class MyModel(AIxBlockMLBase):
                         pipe_predict.set_adapters(
                             ["custom_lora"], adapter_weights=[1.0]
                         )
-                    pipe_predict.enable_model_cpu_offload()
+                    # pipe_predict.enable_model_cpu_offload()
                 elif task.lower() == "IP Adapter":
                     pipe_predict = FluxPipeline.from_pretrained(
                         model_id,
                         torch_dtype=torch.bfloat16,
-                    ).to("cuda")
+                        device_map="balanced",
+                    )
                     if load_lora:
                         pipe_predict.load_lora_weights(
                             lora_model_name,
@@ -703,7 +706,7 @@ class MyModel(AIxBlockMLBase):
                         image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
                     )
                     pipe_predict.set_ip_adapter_scale(1.0)
-                    pipe_predict.enable_model_cpu_offload()
+                    # pipe_predict.enable_model_cpu_offload()
                 return pipe_predict
 
             def predict_flux(
