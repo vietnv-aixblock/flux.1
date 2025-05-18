@@ -563,8 +563,14 @@ with gr.Blocks(css=demo_css) as demo:
         ip_adapter_weight_name_box_global,
     ):
         # Initial state: Loading message and disabled button
-        yield gr.update(value="Loading model..."), gr.Button(
-            interactive=False, variant="primary"
+        yield (
+            gr.update(value="Loading model..."),  # status_msg_box
+            gr.Button(interactive=False, variant="primary"),  # load_btn
+            gr.Keep(),  # model_state
+            gr.Keep(),  # preproc_state
+            gr.Keep(),  # txt2img_col
+            gr.Keep(),  # img2img_col
+            gr.Keep(),  # ipadapter_col
         )
 
         # Load the model (this is the potentially long-running part)
@@ -584,10 +590,10 @@ with gr.Blocks(css=demo_css) as demo:
 
         # Final state: Done message and re-enabled button, and update column visibility
         yield (
-            gr.update(value="Done"),
-            gr.Button(interactive=True, variant="primary"),
-            new_model_state,
-            new_preproc_state,
+            gr.update(value="Done"),  # status_msg_box
+            gr.Button(interactive=True, variant="primary"),  # load_btn
+            new_model_state,  # model_state
+            new_preproc_state,  # preproc_state
             txt2img_viz,
             img2img_viz,
             ipadapter_viz,
