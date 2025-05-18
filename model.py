@@ -318,7 +318,7 @@ class MyModel(AIxBlockMLBase):
 
         HfFolder.save_token(const.HF_TOKEN)
         login(token=const.HF_ACCESS_TOKEN)
-        wandb.login("allow", const.WANDB_TOKEN)
+        # wandb.login("allow", const.WANDB_TOKEN)
         print("Login successful")
 
         if torch.cuda.is_available():
