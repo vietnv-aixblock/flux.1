@@ -48,7 +48,7 @@ def load_model(
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
-                # weight_name="lora.safetensors",
+                weight_name="furry_lora.safetensors",
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
