@@ -338,14 +338,14 @@ with gr.Blocks(css=demo_css) as demo:
             height = gr.Slider(
                 256,
                 1536,
-                value=768,
+                value=640,
                 step=8,
                 label="Height",
             )
             width = gr.Slider(
                 256,
                 2048,
-                value=1360,
+                value=640,
                 step=8,
                 label="Width",
             )
@@ -372,7 +372,7 @@ with gr.Blocks(css=demo_css) as demo:
         )
         prompt2 = gr.Textbox(
             label="Prompt",
-            value="A robot made of exotic candies and chocolates of different kinds. The background is filled with confetti and celebratory gifts.",
+            value="",
             info="Describe the modifications or style for the output image.",
         )
         with gr.Accordion("Advanced Options", open=False):
@@ -600,6 +600,12 @@ with gr.Blocks(css=demo_css) as demo:
             img2img_col,
             ipadapter_col,
         ],
+    )
+    load_btn.click(
+        set_loaded_msg,
+        inputs=None,
+        outputs=status_msg_box,
+        queue=False,
     )
     load_btn.click(
         unset_btn_loading,
