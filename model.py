@@ -774,6 +774,9 @@ class MyModel(AIxBlockMLBase):
                 ip_adapter_weight_name = kwargs.get("ip_adapter_weight_name", None)
                 img_base64 = kwargs.get("img_base64", None)
                 negative_prompt = kwargs.get("negative_prompt", None)
+                
+                # image
+                image_input = 
                 if img_base64:
                     if img_base64.startswith("data:image"):
                         img_base64 = img_base64.split(",")[1]
