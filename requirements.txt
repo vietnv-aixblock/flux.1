@@ -20,7 +20,7 @@ centrifuge-python
 opencv-python>=4.1.1
 numpy
 grafana-api
-diffusers>=0.30.0
+git+https://github.com/huggingface/diffusers
 datasets
 trl
 peft

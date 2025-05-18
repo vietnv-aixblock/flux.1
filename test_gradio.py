@@ -34,6 +34,7 @@ def load_model(
     load_lora=False,
     lora_model_name="XLabs-AI/flux-furry-lora",
     lora_scale=0.9,
+    lora_weight_name="furry_lora.safetensors",
     load_ip_adapter=False,
     ip_adapter_model_name="XLabs-AI/flux-ip-adapter",
 ):
@@ -48,7 +49,7 @@ def load_model(
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
-                # weight_name="furry_lora.safetensors",
+                weight_name=lora_weight_name,
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
@@ -56,7 +57,7 @@ def load_model(
             pipe.load_ip_adapter(
                 ip_adapter_model_name,
                 weight_name="ip_adapter.safetensors",
-                image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
+                # image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
             )
             pipe.set_ip_adapter_scale(1.0)
         pipe.enable_model_cpu_offload()
@@ -88,7 +89,7 @@ def load_model(
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
-                # weight_name="lora.safetensors",
+                weight_name=lora_weight_name,
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
@@ -244,6 +245,12 @@ with gr.Blocks(css=demo_css) as demo:
                 label="LoRA Scale",
                 visible=False,
                 info="Adjust the influence of the loaded LoRA weights.",
+            )
+            lora_weight_name_box = gr.Textbox(
+                label="LoRA Weight Name",
+                value="lora.safetensors",
+                visible=False,
+                info="Name of the LoRA weight file.",
             )
             ip_adapter_checkbox = gr.Checkbox(
                 label="Load IP-Adapter",
@@ -420,12 +427,16 @@ with gr.Blocks(css=demo_css) as demo:
 
     # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
     def toggle_lora_controls(checked):
-        return gr.update(visible=checked), gr.update(visible=checked)
+        return (
+            gr.update(visible=checked),
+            gr.update(visible=checked),
+            gr.update(visible=checked),
+        )
 
     lora_checkbox.change(
         toggle_lora_controls,
         inputs=lora_checkbox,
-        outputs=[lora_model_box, lora_scale_slider],
+        outputs=[lora_model_box, lora_scale_slider, lora_weight_name_box],
     )
 
     # Hiện ô ip_adapter_model_box khi ip_adapter_checkbox được tích
@@ -465,6 +476,7 @@ with gr.Blocks(css=demo_css) as demo:
             lora_checkbox,
             lora_model_box,
             lora_scale_slider,
+            lora_weight_name_box,
             ip_adapter_checkbox,
             ip_adapter_model_box,
         ],
