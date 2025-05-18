@@ -520,6 +520,7 @@ with gr.Blocks(css=demo_css) as demo:
                 gr.update(visible=False),
                 gr.update(visible=False),
                 gr.update(visible=True),
+                gr.update(value=""),
             )
 
     mode.change(
@@ -534,6 +535,7 @@ with gr.Blocks(css=demo_css) as demo:
             load_btn,
             ip_adapter_model_box_global,
             ip_adapter_weight_name_box_global,
+            status_msg_box,
         ],
     )
 
