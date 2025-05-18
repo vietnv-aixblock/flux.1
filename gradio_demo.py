@@ -549,6 +549,8 @@ with gr.Blocks(css=demo_css) as demo:
             preproc_state,
             load_btn,
             status_msg_box,
+            ip_adapter_model_box_global,
+            ip_adapter_weight_name_box_global,
         ],
     )
 
@@ -567,20 +569,12 @@ with gr.Blocks(css=demo_css) as demo:
             gr.update(visible=checked),
             gr.update(visible=checked),
             gr.update(visible=checked),
-            gr.update(visible=checked),
-            gr.update(visible=checked),
         )
 
     lora_checkbox.change(
         toggle_lora_controls,
         inputs=lora_checkbox,
-        outputs=[
-            lora_model_box,
-            lora_scale_slider,
-            lora_weight_name_box,
-            ip_adapter_model_box_global,
-            ip_adapter_weight_name_box_global,
-        ],
+        outputs=[lora_model_box, lora_scale_slider, lora_weight_name_box],
     )
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
