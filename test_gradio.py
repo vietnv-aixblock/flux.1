@@ -48,7 +48,7 @@ def load_model(
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
-                weight_name="furry_lora.safetensors",
+                # weight_name="furry_lora.safetensors",
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
@@ -377,14 +377,33 @@ with gr.Blocks(css=demo_css) as demo:
             return (
                 gr.update(visible=True),
                 gr.update(visible=False),
+                None,
+                None,
+                gr.Button(interactive=True, elem_classes=[], variant="primary"),
+                gr.update(visible=False, value=""),
             )
         else:
             return (
                 gr.update(visible=False),
                 gr.update(visible=True),
+                None,
+                None,
+                gr.Button(interactive=True, elem_classes=[], variant="primary"),
+                gr.update(visible=False, value=""),
             )
 
-    mode.change(switch_mode, inputs=mode, outputs=[txt2img_col, img2img_col])
+    mode.change(
+        switch_mode,
+        inputs=mode,
+        outputs=[
+            txt2img_col,
+            img2img_col,
+            model_state,
+            preproc_state,
+            load_btn,
+            model_loaded_msg,
+        ],
+    )
 
     def set_loading_msg():
         return gr.update(
