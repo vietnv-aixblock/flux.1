@@ -107,12 +107,20 @@ def load_model(
         pipe = FluxPipeline.from_pretrained(
             "black-forest-labs/FLUX.1-dev", torch_dtype=torch.bfloat16
         ).to("cuda")
+        if load_lora:
+            pipe.load_lora_weights(
+                lora_model_name,
+                weight_name=lora_weight_name,
+                adapter_name="custom_lora",
+            )
+            pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
         pipe.load_ip_adapter(
             ip_adapter_model_name,
             weight_name=ip_adapter_weight_name,
             image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
         )
         pipe.set_ip_adapter_scale(1.0)
+        pipe.enable_model_cpu_offload()
         return (
             pipe,
             None,
@@ -228,11 +236,10 @@ def image_to_image_ip_adapter_gr(
     model_state,
     init_image,
     prompt,
+    negative_prompt,
     guidance_scale,
     height,
     width,
-    num_inference_steps,
-    max_sequence_length,
     seed,
 ):
     if model_state is None:
@@ -254,12 +261,10 @@ def image_to_image_ip_adapter_gr(
         width=width,
         height=height,
         prompt=prompt,
-        # negative_prompt="", # Add negative prompt control if needed
-        true_cfg_scale=guidance_scale,  # Map guidance_scale to true_cfg_scale
+        negative_prompt=negative_prompt,
+        true_cfg_scale=guidance_scale,
         generator=generator,
         ip_adapter_image=ip_adapter_image,
-        num_inference_steps=num_inference_steps,
-        max_sequence_length=max_sequence_length,
     ).images[0]
     return image
 
@@ -453,43 +458,34 @@ with gr.Blocks(css=demo_css) as demo:
             info="Describe the modifications or style for the output image.",
         )
         with gr.Accordion("Advanced Options", open=False):
+            negative_prompt_ip = gr.Textbox(
+                label="Negative Prompt",
+                value="",
+                info="Describe what you do NOT want to see in the image.",
+            )
             guidance_scale_ip = gr.Slider(
                 0,
                 20,
-                value=4.0,  # Default value from example
+                value=4.0,
                 step=0.1,
                 label="Guidance Scale (true_cfg_scale)",
             )
             height_ip = gr.Slider(
                 256,
                 1536,
-                value=1024,  # Default value from example
+                value=1024,
                 step=8,
                 label="Height",
             )
             width_ip = gr.Slider(
                 256,
                 2048,
-                value=1024,  # Default value from example
+                value=1024,
                 step=8,
                 label="Width",
             )
-            num_inference_steps_ip = gr.Slider(
-                1,
-                100,
-                value=30,  # Keeping default from Depth Control for consistency
-                step=1,
-                label="Num Inference Steps",
-            )
-            max_sequence_length_ip = gr.Slider(
-                32,
-                512,
-                value=256,  # Keeping default from Depth Control for consistency
-                step=8,
-                label="Max Sequence Length",
-            )
             seed_ip = gr.Number(
-                value=4444,  # Default value from example
+                value=4444,
                 label="Seed (int)",
             )
         gen_btn_ip = gr.Button("Generate")
@@ -628,6 +624,8 @@ with gr.Blocks(css=demo_css) as demo:
             img2img_col,
             ipadapter_col,
             model_loaded_msg,
+            ip_adapter_model_box_global,
+            ip_adapter_weight_name_box_global,
         ],
     )
     load_btn.click(
@@ -677,11 +675,10 @@ with gr.Blocks(css=demo_css) as demo:
             model_state,
             init_img_ip,
             prompt_ip,
+            negative_prompt_ip,
             guidance_scale_ip,
             height_ip,
             width_ip,
-            num_inference_steps_ip,
-            max_sequence_length_ip,
             seed_ip,
         ],
         outputs=img_out_ip,
