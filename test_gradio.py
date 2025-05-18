@@ -48,7 +48,7 @@ def load_model(
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
-                weight_name="lora.safetensors",
+                # weight_name="lora.safetensors",
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
@@ -88,7 +88,7 @@ def load_model(
         if load_lora:
             pipe.load_lora_weights(
                 lora_model_name,
-                weight_name="lora.safetensors",
+                # weight_name="lora.safetensors",
                 adapter_name="custom_lora",
             )
             pipe.set_adapters(["custom_lora"], adapter_weights=[lora_scale])
@@ -430,13 +430,11 @@ with gr.Blocks(css=demo_css) as demo:
         set_loading_msg,
         inputs=None,
         outputs=loading_msg,
-        queue=False,
     )
     load_btn.click(
         set_btn_loading,
         inputs=None,
         outputs=load_btn,
-        queue=False,
     )
     load_btn.click(
         load_model,
@@ -462,13 +460,11 @@ with gr.Blocks(css=demo_css) as demo:
         unset_btn_loading,
         inputs=None,
         outputs=load_btn,
-        queue=False,
     )
     load_btn.click(
         clear_loading_msg,
         inputs=None,
         outputs=loading_msg,
-        queue=False,
     )
 
     gen_btn.click(
