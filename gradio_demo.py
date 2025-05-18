@@ -541,7 +541,7 @@ with gr.Blocks(css=demo_css) as demo:
         return gr.update(value="Loading model...")
 
     def set_loaded_msg():
-        return gr.update(value="Model is ready!")
+        return gr.update(value="Done")
 
     def clear_loading_msg():
         return gr.update(value="")
@@ -562,9 +562,7 @@ with gr.Blocks(css=demo_css) as demo:
 
     # Hiệu ứng loading cho nút Load Model (thêm class blinking)
     def set_btn_loading():
-        return gr.Button(
-            interactive=False, elem_classes=["blinking"], variant="primary"
-        )
+        return gr.Button(interactive=False, variant="primary")
 
     def unset_btn_loading():
         return gr.Button(interactive=True, elem_classes=[], variant="primary")
@@ -605,7 +603,6 @@ with gr.Blocks(css=demo_css) as demo:
         set_loaded_msg,
         inputs=None,
         outputs=status_msg_box,
-        queue=False,
     )
     load_btn.click(
         unset_btn_loading,
