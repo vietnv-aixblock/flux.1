@@ -58,7 +58,12 @@ from centrifuge import (
     SubscriptionEventHandler,
 )
 from datasets import load_dataset
-from diffusers import FluxPipeline, FluxTransformer2DModel, BitsAndBytesConfig
+from diffusers import (
+    FluxPipeline,
+    FluxTransformer2DModel,
+    BitsAndBytesConfig,
+    FluxControlPipeline,
+)
 from huggingface_hub import HfApi, HfFolder, hf_hub_download, login
 from mcp.server.fastmcp import FastMCP
 
@@ -74,7 +79,11 @@ from logging_class import start_queue, write_log
 from misc import get_device_count
 from param_class import TrainingConfigFlux, TrainingConfigFluxLora
 from loguru import logger
+from PIL import Image
+import io
 import gc
+from diffusers.utils import load_image
+from image_gen_aux import DepthPreprocessor
 
 # --------------------------------------------------------------------------------------------
 with open("models.yaml", "r") as file:
@@ -297,6 +306,9 @@ def download(base_model, train_config):
         train_config["t5xxl"] = str(t5xxl_path)
 
     return train_config
+
+
+pipe_predict = None
 
 
 class MyModel(AIxBlockMLBase):
@@ -625,6 +637,123 @@ class MyModel(AIxBlockMLBase):
             return {"message": "tensorboardx started successfully"}
         # region Predict
         elif command.lower() == "predict":
+
+            def unload_and_load_model(
+                task: str,
+                load_lora: bool,
+                lora_model_name: str,
+                lora_weight_name: str,
+                model_id: str,
+                ip_adapter_name: str,
+                ip_adapter_weight_name: str,
+            ):
+                global pipe_predict
+                # clear VRAM
+                del pipe_predict
+                gc.collect()
+                torch.cuda.empty_cache()
+                # Load model
+                if task.lower() == "text to image":
+                    pipe_predict = FluxPipeline.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.bfloat16,
+                    ).to("cuda")
+                    if load_lora:
+                        pipe_predict.load_lora_weights(
+                            lora_model_name,
+                            weight_name=lora_weight_name,
+                            adapter_name="custom_lora",
+                        )
+                        pipe_predict.set_adapters(
+                            ["custom_lora"], adapter_weights=[1.0]
+                        )
+                    pipe_predict.enable_model_cpu_offload()
+                elif task.lower() == "depth control":
+                    pipe_predict = FluxControlPipeline(
+                        model_id,
+                        torch_dtype=torch.bfloat16,
+                    ).to("cuda")
+                    if load_lora:
+                        pipe_predict.load_lora_weights(
+                            lora_model_name,
+                            weight_name=lora_weight_name,
+                            adapter_name="custom_lora",
+                        )
+                        pipe_predict.set_adapters(
+                            ["custom_lora"], adapter_weights=[1.0]
+                        )
+                    pipe_predict.enable_model_cpu_offload()
+                elif task.lower() == "IP Adapter":
+                    pipe_predict = FluxPipeline.from_pretrained(
+                        model_id,
+                        torch_dtype=torch.bfloat16,
+                    ).to("cuda")
+                    if load_lora:
+                        pipe_predict.load_lora_weights(
+                            lora_model_name,
+                            weight_name=lora_weight_name,
+                            adapter_name="custom_lora",
+                        )
+                        pipe_predict.set_adapters(
+                            ["custom_lora"], adapter_weights=[1.0]
+                        )
+                    pipe_predict.load_ip_adapter(
+                        ip_adapter_name,
+                        weight_name=ip_adapter_weight_name,
+                        image_encoder_pretrained_model_name_or_path="openai/clip-vit-large-patch14",
+                    )
+                    pipe_predict.set_ip_adapter_scale(1.0)
+                    pipe_predict.enable_model_cpu_offload()
+                return pipe_predict
+
+            def predict_flux(
+                pipe_predict,
+                task,
+                prompt,
+                width,
+                height,
+                num_inference_steps,
+                guidance_scale,
+                image_control,
+                negative_prompt,
+            ):
+                if task.lower() == "text to image":
+                    image = pipe_predict(
+                        prompt=prompt,
+                        guidance_scale=guidance_scale,
+                        height=height,
+                        width=width,
+                        num_inference_steps=num_inference_steps,
+                        # max_sequence_length=max_sequence_length,
+                    ).images[0]
+                elif task.lower() == "depth control":
+                    processor = DepthPreprocessor.from_pretrained(
+                        "LiheYoung/depth-anything-large-hf"
+                    )
+                    control_image = processor(image_control)[0].convert("RGB")
+                    image = pipe_predict(
+                        prompt=prompt,
+                        control_image=control_image,
+                        height=width,
+                        width=height,
+                        num_inference_steps=num_inference_steps,
+                        guidance_scale=guidance_scale,
+                        generator=torch.Generator().manual_seed(42),
+                    ).images[0]
+
+                elif task.lower() == "IP Adapter":
+                    control_image = load_image(image_control)
+                    image = pipe(
+                        width=width,
+                        height=height,
+                        prompt=prompt,
+                        negative_prompt="",
+                        true_cfg_scale=4.0,
+                        generator=torch.Generator().manual_seed(4444),
+                        ip_adapter_image=control_image,
+                    ).images[0]
+                return image
+
             try:
                 prompt = kwargs.get("prompt", None)
                 model_id = kwargs.get("model_id", "black-forest-labs/FLUX.1-dev")
@@ -634,49 +763,48 @@ class MyModel(AIxBlockMLBase):
                 num_inference_steps = kwargs.get("num_inference_steps", 4)
                 guidance_scale = kwargs.get("guidance_scale", 2)
                 format = kwargs.get("format", "JPEG")
+                task = kwargs.get("task", "text to image")
+                load_lora = kwargs.get("load_lora", False)
+                lora_model_name = kwargs.get("lora_model_name", None)
+                lora_weight_name = kwargs.get("lora_weight_name", None)
+                ip_adapter_name = kwargs.get("ip_adapter_name", None)
+                ip_adapter_weight_name = kwargs.get("ip_adapter_weight_name", None)
+                img_base64 = kwargs.get("img_base64", None)
+                negative_prompt = kwargs.get("negative_prompt", None)
+                if img_base64.startswith("data:image"):
+                    img_base64 = img_base64.split(",")[1]
 
+                image_bytes = base64.b64decode(img_base64)
+                image_input = Image.open(io.BytesIO(image_bytes))
+                image_input = load_image(image)
                 if prompt == "" or prompt is None:
                     return None, ""
 
-                with torch.no_grad():
-                    try:
-                        nf4_config = BitsAndBytesConfig(
-                            load_in_4bit=True,
-                            bnb_4bit_quant_type="nf4",
-                            bnb_4bit_compute_dtype=torch.bfloat16,
-                        )
-                        model_nf4 = FluxTransformer2DModel.from_pretrained(
-                            model_id,
-                            subfolder="transformer",
-                            quantization_config=nf4_config,
-                            torch_dtype=torch.bfloat16,
-                            # device_map=device,
-                        )
-                        pipe = FluxPipeline.from_pretrained(
-                            model_id,
-                            transformer=model_nf4,
-                            torch_dtype=torch.bfloat16,
-                            device_map="balanced",
-                        )
-                        image = pipe(
-                            prompt=prompt,
-                            width=width,
-                            height=height,
-                            num_inference_steps=num_inference_steps,
-                            guidance_scale=guidance_scale,
-                        ).images[0]
-                    except Exception as e:
-                        logger.error(str(e))
-
+                pipe = unload_and_load_model(
+                    task=task,
+                    load_lora=load_lora,
+                    lora_model_name=lora_model_name,
+                    lora_weight_name=lora_weight_name,
+                    model_id=model_id,
+                    ip_adapter_name=ip_adapter_name,
+                    ip_adapter_weight_name=ip_adapter_weight_name,
+                )
+                image = predict_flux(
+                    pipe_predict=pipe,
+                    task=task,
+                    prompt=prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=num_inference_steps,
+                    guidance_scale=guidance_scale,
+                    image_control=image_input,
+                    negative_prompt=negative_prompt,
+                )
                 buffered = BytesIO()
                 image.save(buffered, format=format)
                 image.save(const.PROJ_DIR.joinpath(f"image.{format}"))
                 img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
                 generated_url = f"/downloads?path=image.{format}"
-
-                del pipe, model_nf4
-                gc.collect()
-                torch.cuda.empty_cache()
 
                 result = {
                     "model_version": model_id,

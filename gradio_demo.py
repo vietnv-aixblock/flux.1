@@ -42,10 +42,10 @@ def load_model(
     model_state, preproc_state = unload_model(model_state)
     if mode == "Text to Image":
         pipe = FluxPipeline.from_pretrained(
-            "black-forest-labs/FLUX.1-schnell",
+            "black-forest-labs/FLUX.1-dev",
             torch_dtype=torch.bfloat16,
             # device_map="balanced",
-        )
+        ).to("cuda")
         # Nếu load_lora được tích thì load 1 LoRA weight và set scale
         if load_lora:
             pipe.load_lora_weights(
@@ -61,10 +61,6 @@ def load_model(
             gr.update(visible=True),
             gr.update(visible=False),
             gr.update(visible=False),
-            gr.update(
-                visible=True,
-                value="Model is ready!",
-            ),
         )
     elif mode == "Image to Image (Depth Control)":
         pipe = FluxControlPipeline.from_pretrained(
@@ -95,10 +91,6 @@ def load_model(
             gr.update(visible=False),
             gr.update(visible=True),
             gr.update(visible=False),
-            gr.update(
-                visible=True,
-                value="Model is ready!",
-            ),
         )
     elif mode == "Image to Image (IP Adapter)":
         pipe = FluxPipeline.from_pretrained(
@@ -124,10 +116,6 @@ def load_model(
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=True),
-            gr.update(
-                visible=True,
-                value="Model is ready!",
-            ),
         )
     else:
         return (
@@ -136,7 +124,6 @@ def load_model(
             gr.update(visible=False),
             gr.update(visible=False),
             gr.update(visible=False),
-            clear_loading_msg(),
         )
 
 
@@ -547,7 +534,6 @@ with gr.Blocks(css=demo_css) as demo:
             load_btn,
             ip_adapter_model_box_global,
             ip_adapter_weight_name_box_global,
-            status_msg_box,
         ],
     )
 
