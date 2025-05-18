@@ -5,7 +5,8 @@ from PIL import Image
 import gc
 from diffusers.utils import load_image
 import numpy as np
-from huggingface_hub import hf_hub_download
+
+# --------------------------------------------------------------
 
 # Try to import DepthPreprocessor if available
 try:
@@ -333,9 +334,8 @@ with gr.Blocks(css=demo_css) as demo:
             )
         with gr.Column(scale=1):
             load_btn = gr.Button("Load Model", size="lg", variant="primary")
-        with gr.Column(scale=2):
-            model_loaded_msg = gr.Markdown("", visible=False)
-    loading_msg = gr.Markdown("", visible=False)
+            # Status message box below the Load Model button
+            status_msg_box = gr.Markdown("", visible=False)
 
     model_state = gr.State(None)
     preproc_state = gr.State(None)
@@ -405,14 +405,14 @@ with gr.Blocks(css=demo_css) as demo:
             height2 = gr.Slider(
                 256,
                 1536,
-                value=1024,
+                value=640,
                 step=8,
                 label="Height",
             )
             width2 = gr.Slider(
                 256,
                 2048,
-                value=1024,
+                value=640,
                 step=8,
                 label="Width",
             )
@@ -454,7 +454,7 @@ with gr.Blocks(css=demo_css) as demo:
         )
         prompt_ip = gr.Textbox(
             label="Prompt",
-            value="A robot made of exotic candies and chocolates of different kinds. The background is filled with confetti and celebratory gifts.",
+            value="",
             info="Describe the modifications or style for the output image.",
         )
         with gr.Accordion("Advanced Options", open=False):
@@ -473,14 +473,14 @@ with gr.Blocks(css=demo_css) as demo:
             height_ip = gr.Slider(
                 256,
                 1536,
-                value=1024,
+                value=640,
                 step=8,
                 label="Height",
             )
             width_ip = gr.Slider(
                 256,
                 2048,
-                value=1024,
+                value=640,
                 step=8,
                 label="Width",
             )
@@ -551,9 +551,7 @@ with gr.Blocks(css=demo_css) as demo:
             model_state,
             preproc_state,
             load_btn,
-            model_loaded_msg,
-            ip_adapter_model_box_global,
-            ip_adapter_weight_name_box_global,
+            status_msg_box,
         ],
     )
 
@@ -594,9 +592,9 @@ with gr.Blocks(css=demo_css) as demo:
         return gr.Button(interactive=True, elem_classes=[], variant="primary")
 
     load_btn.click(
-        set_loading_msg,
+        lambda: set_loading_msg(),
         inputs=None,
-        outputs=loading_msg,
+        outputs=status_msg_box,
         queue=False,
     )
     load_btn.click(
@@ -623,9 +621,7 @@ with gr.Blocks(css=demo_css) as demo:
             txt2img_col,
             img2img_col,
             ipadapter_col,
-            model_loaded_msg,
-            ip_adapter_model_box_global,
-            ip_adapter_weight_name_box_global,
+            status_msg_box,
         ],
     )
     load_btn.click(
@@ -636,7 +632,7 @@ with gr.Blocks(css=demo_css) as demo:
     load_btn.click(
         clear_loading_msg,
         inputs=None,
-        outputs=loading_msg,
+        outputs=status_msg_box,
     )
 
     gen_btn.click(
