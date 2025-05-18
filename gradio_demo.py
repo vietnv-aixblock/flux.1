@@ -65,7 +65,6 @@ def load_model(
                 visible=True,
                 value="Model is ready!",
             ),
-            set_loaded_msg(),
         )
     elif mode == "Image to Image (Depth Control)":
         pipe = FluxControlPipeline.from_pretrained(
@@ -100,7 +99,6 @@ def load_model(
                 visible=True,
                 value="Model is ready!",
             ),
-            set_loaded_msg(),
         )
     elif mode == "Image to Image (IP Adapter)":
         pipe = FluxPipeline.from_pretrained(
@@ -130,7 +128,6 @@ def load_model(
                 visible=True,
                 value="Model is ready!",
             ),
-            set_loaded_msg(),
         )
     else:
         return (
