@@ -778,9 +778,9 @@ class MyModel(AIxBlockMLBase):
                     if img_base64.startswith("data:image"):
                         img_base64 = img_base64.split(",")[1]
 
-                image_bytes = base64.b64decode(img_base64)
-                image_input = Image.open(io.BytesIO(image_bytes))
-                image_input = load_image(image)
+                    image_bytes = base64.b64decode(img_base64)
+                    image_input = Image.open(io.BytesIO(image_bytes))
+                    image_input = load_image(image)
                 if prompt == "" or prompt is None:
                     return None, ""
 
