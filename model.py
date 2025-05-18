@@ -776,7 +776,7 @@ class MyModel(AIxBlockMLBase):
                 negative_prompt = kwargs.get("negative_prompt", None)
                 
                 # image
-                image_input = 
+                image_input = None
                 if img_base64:
                     if img_base64.startswith("data:image"):
                         img_base64 = img_base64.split(",")[1]
