@@ -331,7 +331,7 @@ with gr.Blocks(css=demo_css) as demo:
             load_btn = gr.Button("Load Model", size="lg", variant="primary")
             # Status message box below the Load Model button
             status_msg_box = gr.Textbox(
-                label="Status", value="", interactive=False, visible=False
+                label="Status", value="", interactive=False, visible=True
             )
 
     model_state = gr.State(None)
@@ -548,20 +548,19 @@ with gr.Blocks(css=demo_css) as demo:
             model_state,
             preproc_state,
             load_btn,
-            status_msg_box,
             ip_adapter_model_box_global,
             ip_adapter_weight_name_box_global,
         ],
     )
 
     def set_loading_msg():
-        return gr.update(value="Loading model...", visible=True)
+        return gr.update(value="Loading model...")
 
     def set_loaded_msg():
-        return gr.update(value="Model is ready!", visible=True)
+        return gr.update(value="Model is ready!")
 
     def clear_loading_msg():
-        return gr.update(value="", visible=False)
+        return gr.update(value="")
 
     # Hiện ô lora_model_box và lora_scale_slider khi lora_checkbox được tích
     def toggle_lora_controls(checked):
@@ -616,7 +615,6 @@ with gr.Blocks(css=demo_css) as demo:
             txt2img_col,
             img2img_col,
             ipadapter_col,
-            status_msg_box,
         ],
     )
     load_btn.click(
