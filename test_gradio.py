@@ -335,7 +335,9 @@ with gr.Blocks(css=demo_css) as demo:
         with gr.Column(scale=1):
             load_btn = gr.Button("Load Model", size="lg", variant="primary")
             # Status message box below the Load Model button
-            status_msg_box = gr.Markdown("", visible=False)
+            status_msg_box = gr.Textbox(
+                label="Status", value="", interactive=False, visible=False
+            )
 
     model_state = gr.State(None)
     preproc_state = gr.State(None)
@@ -556,14 +558,10 @@ with gr.Blocks(css=demo_css) as demo:
     )
 
     def set_loading_msg():
-        return gr.update(
-            value="<span style='color:blue'>Loading model...</span>", visible=True
-        )
+        return gr.update(value="Loading model...", visible=True)
 
     def set_loaded_msg():
-        return gr.update(
-            value="<span style='color:green'>Model is ready!</span>", visible=True
-        )
+        return gr.update(value="Model is ready!", visible=True)
 
     def clear_loading_msg():
         return gr.update(value="", visible=False)
